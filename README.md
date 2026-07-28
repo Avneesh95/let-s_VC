@@ -1,0 +1,112 @@
+# ChatApp — MERN + Socket.IO Real-Time Chat
+
+A minimal WhatsApp-style 1-on-1 chat app. Built to be **easy to explain in an interview**:
+every feature maps to one clear technical concept, nothing extra to justify.
+
+## Feature set (intentionally scoped)
+- JWT authentication (register/login)
+- Contact list (all other registered users)
+- 1-on-1 real-time messaging via Socket.IO
+- Message persistence in MongoDB (chat history survives refresh/logout)
+- Online/offline presence
+- Typing indicator
+- Image sharing (upload to Cloudinary, sent as a message)
+- 1-on-1 video calling (WebRTC, signaled over the existing Socket.IO connection)
+
+**Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
+group chats/calls, screen sharing, call recording, message read receipts, message
+editing, push notifications, a TURN server (see WebRTC section below).
+Each would be a reasonable "what would you add next" answer.
+
+## Architecture
+```
+Browser (React) ⇄ REST API (Express)   → auth, fetching user list & message history
+Browser (React) ⇄ WebSocket (Socket.IO) → sending/receiving messages, typing, presence
+                        ↓
+                    MongoDB (Mongoose)
+```
+- **REST vs WebSocket split**: REST handles anything request/response (login, loading
+  history). Socket.IO handles anything that needs to push data to the client without
+  it asking — a new message arriving, a typing event. This split is the #1 thing to
+  be able to explain clearly.
+- **Auth on the socket**: the JWT is passed in the Socket.IO handshake (`auth: { token }`)
+  and verified server-side before the connection is accepted — same identity system
+  as the REST API, just applied to a persistent connection.
+- **Presence**: an in-memory `Map<userId, socketId>` on the server tracks who's online.
+  Simple and correct for a single server instance. (Good follow-up answer: "at scale
+  you'd move this to Redis so presence works across multiple server instances.")
+- **Image sharing**: the client uploads a file to `POST /api/upload` (REST, not the
+  socket — file uploads don't belong on a WebSocket), which streams it straight to
+  Cloudinary via `multer-storage-cloudinary`. The server never stores the file itself,
+  only the returned URL, which then gets sent as a normal chat message (`type: "image"`).
+- **Video calling (WebRTC)**: the two browsers negotiate a *direct* peer-to-peer
+  connection for audio/video — the server is never in the media path, it only relays
+  three handshake messages over Socket.IO: the SDP `offer`, the SDP `answer`, and ICE
+  candidates. This is the standard WebRTC signaling pattern. A STUN server (Google's
+  public one) helps each peer discover its public IP; there's no TURN server, so calls
+  will fail to connect on some restrictive networks (corporate firewalls, symmetric
+  NAT) — that's a known, explainable limitation, not a bug.
+
+## Project structure
+```
+backend/
+  models/       Mongoose schemas (User, Message)
+  routes/       REST endpoints (auth, users, messages)
+  middleware/   JWT verification for protected routes
+  socket/       Socket.IO connection + event handlers
+  server.js     Express + HTTP server + Socket.IO bootstrap
+frontend/
+  src/context/  AuthContext (login state), SocketContext (shared socket connection)
+  src/pages/    Login, Register, Chat
+  src/components/  Sidebar, ChatWindow, MessageBubble, MessageInput
+```
+
+## Running locally
+**Backend**
+```bash
+cd backend
+cp .env.example .env   # fill in MONGO_URI and JWT_SECRET
+npm install
+npm run dev
+```
+
+**Frontend**
+```bash
+cd frontend
+cp .env.example .env   # set VITE_API_URL to your backend URL
+npm install
+npm run dev
+```
+
+## Deployment (all free-tier friendly)
+1. **Database**: create a free cluster on MongoDB Atlas, get the connection string.
+2. **Image storage**: create a free Cloudinary account, get your cloud name, API key,
+   and API secret from the dashboard.
+3. **Backend**: deploy `backend/` to Render (or Railway) as a Node web service.
+   Set env vars `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL` (your deployed frontend URL),
+   and the three `CLOUDINARY_*` vars.
+4. **Frontend**: deploy `frontend/` to Vercel (or Netlify). Set `VITE_API_URL` to your
+   Render backend URL. Vite auto-detects the build (`npm run build`, output `dist/`).
+5. Update the backend's `CLIENT_URL` and the CORS/Socket.IO origin to match your live
+   frontend URL once deployed.
+6. Video calls need HTTPS in production (`getUserMedia` requires a secure context) —
+   Render and Vercel both give you this by default, so no extra setup needed there.
+
+## Talking points for interviews
+- **Why Socket.IO over raw WebSocket?** Auto-reconnection, fallback transports, and
+  room/broadcast helpers — you'd have to hand-roll all of that with raw `ws`.
+- **Why store messages before emitting?** So a message isn't lost if the receiver is
+  offline — it's already in MongoDB and will show up when they load history.
+- **What would break at scale?** The in-memory presence map — it only works with one
+  server process. Multiple instances would need Redis pub/sub (Socket.IO has a Redis
+  adapter for exactly this) so events reach a socket connected to a different instance.
+- **Security**: passwords hashed with bcrypt, JWT-protected REST routes, JWT-verified
+  socket handshake, no sensitive data in the JWT payload beyond the user ID.
+- **Why upload images over REST instead of the socket?** Sockets are for small,
+  frequent, structured events. A multi-megabyte file is a one-off request/response —
+  REST (with multipart form data) is the right tool, and it lets you reuse normal HTTP
+  concerns like file size limits and content-type validation.
+- **Why does the server relay WebRTC signaling instead of just connecting the peers
+  directly?** The two browsers don't know how to reach each other yet — they need a
+  shared channel to exchange connection info first. Once that handshake finishes, media
+  flows peer-to-peer and the server drops out of the picture entirely.
