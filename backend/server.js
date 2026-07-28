@@ -20,13 +20,14 @@ const server = http.createServer(app);
 // CLIENT_URL can be a single origin or a comma-separated list, e.g.
 // "http://localhost:5173,http://192.168.1.42:5173" — handy when testing
 // from a phone on the same network alongside your desktop browser.
-const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
-  .split(",")
-  .map((url) => url.trim());
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  process.env.CLIENT_URL
+].filter(Boolean);
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. curl, mobile apps) and any listed origin
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
