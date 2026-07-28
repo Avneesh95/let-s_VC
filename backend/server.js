@@ -16,21 +16,22 @@ const uploadRoutes = require("./routes/upload");
 const app = express();
 const server = http.createServer(app);
 
-// Falls back to the default local frontend URL if CLIENT_URL isn't set,
-// so local dev works even if the .env file wasn't picked up correctly.
-// CLIENT_URL can be a single origin or a comma-separated list, e.g.
-// "http://localhost:5173,http://192.168.1.42:5173" — handy when testing
-// from a phone on the same network alongside your desktop browser.
-const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
-  .split(",")
-  .map((url) => url.trim());
+// Allowed Origins
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  ...(process.env.CLIENT_URL
+    ? process.env.CLIENT_URL.split(",").map((url) => url.trim())
+    : []),
+];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. curl, mobile apps) and any listed origin
+    // Allow requests with no origin (Postman, mobile apps, etc.)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log("❌ Blocked Origin:", origin);
       callback(new Error(`CORS blocked for origin: ${origin}`));
     }
   },
