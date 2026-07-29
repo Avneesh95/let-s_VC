@@ -4,6 +4,7 @@ import { SocketProvider } from "./context/SocketContext";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Chat from "./pages/Chat";
+import GroupCall from "./pages/GroupCall";
 
 function PrivateRoute({ children }) {
   const { user } = useAuth();
@@ -21,6 +22,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <Chat />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/room/:roomCode"
+          element={
+            <PrivateRoute>
+              <GroupCall />
             </PrivateRoute>
           }
         />

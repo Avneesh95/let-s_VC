@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import generateRoomCode from "../utils/generateRoomCode";
+
 function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
   if (user.friendStatus === "friends") {
     return <span className="text-xs text-green-600 font-medium whitespace-nowrap">✓ Friend</span>;
@@ -60,6 +64,19 @@ export default function Sidebar({
   onRejectRequest,
 }) {
   const userList = Array.isArray(users) ? users : [];
+  const navigate = useNavigate();
+  const [joinCode, setJoinCode] = useState("");
+
+  const startGroupCall = () => {
+    const code = generateRoomCode();
+    navigate(`/room/${code}`);
+  };
+
+  const joinGroupCall = (e) => {
+    e.preventDefault();
+    if (!joinCode.trim()) return;
+    navigate(`/room/${joinCode.trim().toUpperCase()}`);
+  };
 
   return (
     <aside className="w-full md:w-[300px] bg-white border-r border-gray-200 flex flex-col shrink-0">
@@ -72,6 +89,32 @@ export default function Sidebar({
           Log out
         </button>
       </div>
+
+      <div className="px-4 py-3 border-b border-gray-200 flex flex-col gap-2">
+        <button
+          onClick={startGroupCall}
+          className="text-sm bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2"
+        >
+          🎥 New Group Call
+        </button>
+        <form onSubmit={joinGroupCall} className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Enter room code"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value)}
+            className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand uppercase"
+            maxLength={6}
+          />
+          <button
+            type="submit"
+            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-100"
+          >
+            Join
+          </button>
+        </form>
+      </div>
+
       <ul className="flex-1 overflow-y-auto">
         {userList.map((u) => (
           <li

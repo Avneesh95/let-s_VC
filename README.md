@@ -15,6 +15,8 @@ every feature maps to one clear technical concept, nothing extra to justify.
 - Front/back camera switching mid-call (mobile)
 - Friend system: send/accept/reject friend requests — only friends can message or call each other
 - Responsive layout (Tailwind CSS)
+- Group video calls (up to 6 people) via shareable room codes — no friendship required to join
+  a room, since the room code itself is the invite (like a Zoom/Meet link)
 
 **Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
 group chats/calls, screen sharing, call recording, message read receipts, message
@@ -126,6 +128,24 @@ npm run dev
   strict firewalls), media is routed through the TURN server instead. That's why a
   call that works fine on the same WiFi can fail once it's phone-on-mobile-data vs
   laptop-on-home-WiFi — TURN is what recovers it.
+- **Group calls and why they're capped at 6**: group calls use the same peer-to-peer
+  mesh pattern as the 1-1 call — every participant opens a direct `RTCPeerConnection`
+  to every other participant. The problem: mesh's bandwidth cost grows with the
+  *square* of the room size (each of N people uploads to N-1 others), so a participant's
+  upload bandwidth becomes the bottleneck fast — most home connections struggle past
+  5-6 simultaneous outgoing video streams. Real apps like Zoom or Meet solve this with
+  an SFU (Selective Forwarding Unit) — a media server each person uploads to *once*,
+  which then forwards streams to everyone else, so upload cost stays constant
+  regardless of room size. Building an SFU from scratch is a substantial project on its
+  own (or you'd use a hosted one like LiveKit/Daily/Agora); capping mesh at 6 here is a
+  deliberate, explainable tradeoff rather than a naive oversight — a strong thing to
+  articulate if asked "would this scale to 100 people?" (Answer: no, and here's exactly
+  why, and here's what you'd swap in instead.)
+- **Room joining is by code, not friendship** — unlike 1-1 chat/calls, anyone with a
+  room code can join a group call, the same way a Zoom/Meet link works. Rooms live only
+  in memory on the server (no database model) since a room is really just "whoever
+  currently has the link open" — it's created the moment the first person joins and
+  disappears once the last person leaves.
 - **Friend system & authorization**: a `FriendRequest` document only exists while
   pending — accepting it adds each user's ID to the other's `friends` array (on the
   `User` model) and deletes the request; rejecting just deletes it. There's

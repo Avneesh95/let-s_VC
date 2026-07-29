@@ -5,36 +5,7 @@ import { useSocket } from "../context/SocketContext";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 import CallModal from "../components/CallModal";
-
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    // TURN relay — needed when the two peers are on different real-world
-    // networks (e.g. laptop on home WiFi, phone on mobile data) and can't
-    // find a direct path. STUN alone works great on a shared LAN, which is
-    // why this wasn't needed during local testing — but on an actual
-    // deployment, most real connections go through NAT that STUN can't
-    // punch through, so a TURN relay becomes necessary.
-    // These are the Open Relay Project's public demo credentials — free,
-    // rate-limited, fine for a portfolio project. For production you'd use
-    // your own TURN server (e.g. Twilio, Metered.ca, or self-hosted coturn).
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-  ],
-};
+import ICE_SERVERS from "../utils/iceServers";
 
 export default function Chat() {
   const { user, logout } = useAuth();
@@ -57,6 +28,14 @@ export default function Chat() {
   // callee hasn't clicked "Accept" while the caller is already trickling
   // candidates) — queue them here and flush once the connection is ready.
   const pendingCandidates = useRef([]);
+  // Mirrors localStream in a ref so the signaling effect below doesn't need
+  // localStream in its dependency array — without this, the effect would
+  // tear down and rebuild every socket listener each time the stream
+  // changes (call start, camera switch), which is fragile mid-call.
+  const localStreamRef = useRef(null);
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
 
   // Load contact list, reusable so friend actions can refresh it
   const refreshUsers = useCallback(() => {
@@ -143,7 +122,7 @@ export default function Chat() {
       peerConnection.current?.close();
       peerConnection.current = null;
       pendingCandidates.current = [];
-      localStream?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
       setLocalStream(null);
       setRemoteStream(null);
       setFacingMode("user");
@@ -205,7 +184,7 @@ export default function Chat() {
       socket.off("call-error", handleCallError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, localStream]);
+  }, [socket]);
 
   const createPeerConnection = (targetUserId) => {
     const pc = new RTCPeerConnection(ICE_SERVERS);

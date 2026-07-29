@@ -35,6 +35,41 @@ async function areFriends(userId, otherUserId) {
   return !!me?.friends.some((id) => id.toString() === otherUserId);
 }
 
+// --- Group call rooms ---
+// Rooms are ephemeral and live only in memory — no database model needed,
+// since a room is really just "whoever currently has the link open." A
+// room is created implicitly the moment the first person joins its code,
+// and disappears once the last person leaves.
+// roomCode -> Map<userId, { socketId, username }>
+const rooms = new Map();
+
+// Mesh WebRTC (every participant connects directly to every other
+// participant) scales badly past a handful of people — each participant
+// has to *upload* their video separately to everyone else. This cap keeps
+// that upload fan-out manageable; going higher would need an SFU media
+// server instead of peer-to-peer mesh.
+const MAX_ROOM_SIZE = 6;
+
+function joinRoom(roomCode, userId, username, socketId) {
+  if (!rooms.has(roomCode)) rooms.set(roomCode, new Map());
+  rooms.get(roomCode).set(userId, { socketId, username });
+}
+
+function leaveRoom(roomCode, userId) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  room.delete(userId);
+  if (room.size === 0) rooms.delete(roomCode);
+}
+
+function getRoomParticipants(roomCode, excludeUserId) {
+  const room = rooms.get(roomCode);
+  if (!room) return [];
+  return Array.from(room.entries())
+    .filter(([userId]) => userId !== excludeUserId)
+    .map(([userId, info]) => ({ userId, username: info.username }));
+}
+
 function initSocket(io) {
   // Every socket connection must present a valid JWT before we let it in.
   io.use((socket, next) => {
@@ -154,10 +189,70 @@ function initSocket(io) {
       }
     });
 
+    // --- Group call rooms ---
+    // Same signaling pattern as the 1-1 call above (server only relays
+    // offer/answer/ICE, never touches media), but now for N participants.
+    // The joining user always initiates the connection to everyone already
+    // in the room — that keeps the "who offers to whom" logic simple and
+    // avoids two peers both trying to offer to each other at once (glare).
+    socket.on("join-room", ({ roomCode, username }) => {
+      const room = rooms.get(roomCode);
+      if (room && room.size >= MAX_ROOM_SIZE) {
+        socket.emit("room-error", { message: `Room is full (max ${MAX_ROOM_SIZE} participants)` });
+        return;
+      }
+
+      socket.currentRoom = roomCode;
+      const existingParticipants = getRoomParticipants(roomCode, socket.userId);
+      joinRoom(roomCode, socket.userId, username, socket.id);
+      socket.join(roomCode);
+
+      // Tell the newcomer who's already here — they'll create offers to each
+      socket.emit("existing-participants", existingParticipants);
+      // Tell everyone already here that someone new arrived (for UI only —
+      // they don't initiate anything, they just wait for the newcomer's offer)
+      socket.to(roomCode).emit("user-joined-room", { userId: socket.userId, username });
+    });
+
+    socket.on("leave-room", () => {
+      if (!socket.currentRoom) return;
+      const roomCode = socket.currentRoom;
+      leaveRoom(roomCode, socket.userId);
+      socket.to(roomCode).emit("user-left-room", { userId: socket.userId });
+      socket.leave(roomCode);
+      socket.currentRoom = null;
+    });
+
+    socket.on("room-offer", ({ to, offer }) => {
+      const targetSocketId = getSocketId(to);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("room-offer", { from: socket.userId, offer });
+      }
+    });
+
+    socket.on("room-answer", ({ to, answer }) => {
+      const targetSocketId = getSocketId(to);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("room-answer", { from: socket.userId, answer });
+      }
+    });
+
+    socket.on("room-ice-candidate", ({ to, candidate }) => {
+      const targetSocketId = getSocketId(to);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("room-ice-candidate", { from: socket.userId, candidate });
+      }
+    });
+
     // --- Disconnect ---
     socket.on("disconnect", () => {
       removeSocket(socket.userId, socket.id);
       io.emit("online-users", Array.from(onlineUsers.keys()));
+
+      if (socket.currentRoom) {
+        leaveRoom(socket.currentRoom, socket.userId);
+        socket.to(socket.currentRoom).emit("user-left-room", { userId: socket.userId });
+      }
     });
   });
 }
