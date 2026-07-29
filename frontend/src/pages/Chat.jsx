@@ -36,6 +36,31 @@ export default function Chat() {
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
+  // The "incoming-call" socket listener is registered once (effect deps
+  // are just [socket]) and never rebuilt, so it would otherwise always see
+  // whatever callStatus was at that moment — this ref lets it always read
+  // the current value instead.
+  const callStatusRef = useRef("idle");
+  useEffect(() => {
+    callStatusRef.current = callStatus;
+  }, [callStatus]);
+
+  // One canonical way to fully tear down and reset call state, built only
+  // from refs and setState setters (both stable across renders) so it's
+  // never at risk of closing over stale values — used by the manual "End
+  // Call" button, remote hang-up/decline, call errors, and ICE failures.
+  const resetCallState = useCallback(() => {
+    peerConnection.current?.close();
+    peerConnection.current = null;
+    pendingCandidates.current = [];
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    setLocalStream(null);
+    setRemoteStream(null);
+    setFacingMode("user");
+    setCallStatus("idle");
+    setIncomingCall(null);
+    otherUserId.current = null;
+  }, []);
 
   // Load contact list, reusable so friend actions can refresh it
   const refreshUsers = useCallback(() => {
@@ -118,20 +143,16 @@ export default function Chat() {
   useEffect(() => {
     if (!socket) return;
 
-    const cleanupCall = () => {
-      peerConnection.current?.close();
-      peerConnection.current = null;
-      pendingCandidates.current = [];
-      localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      setLocalStream(null);
-      setRemoteStream(null);
-      setFacingMode("user");
-      setCallStatus("idle");
-      setIncomingCall(null);
-      otherUserId.current = null;
-    };
-
     const handleIncomingCall = ({ from, offer, callerName }) => {
+      // Without this guard, a second incoming call while we're already
+      // calling/in a call would silently overwrite peerConnection.current
+      // mid-flight — orphaning the first connection instead of properly
+      // closing it. That's exactly the kind of bug that produces
+      // "works sometimes, mostly blank" symptoms.
+      if (callStatusRef.current !== "idle") {
+        socket.emit("decline-call", { to: from });
+        return;
+      }
       setIncomingCall({ from, offer, callerName });
       otherUserId.current = from;
       setCallStatus("incoming");
@@ -161,11 +182,11 @@ export default function Chat() {
       }
     };
 
-    const handleCallEnded = () => cleanupCall();
-    const handleCallDeclined = () => cleanupCall();
+    const handleCallEnded = () => resetCallState();
+    const handleCallDeclined = () => resetCallState();
     const handleCallError = ({ message }) => {
       alert(message);
-      cleanupCall();
+      resetCallState();
     };
 
     socket.on("incoming-call", handleIncomingCall);
@@ -184,7 +205,7 @@ export default function Chat() {
       socket.off("call-error", handleCallError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
+  }, [socket, resetCallState]);
 
   const createPeerConnection = (targetUserId) => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -200,13 +221,51 @@ export default function Chat() {
       setRemoteStream(event.streams[0]);
     };
 
-    // Handy to watch in the console while debugging connection issues:
-    // "connected" = media should be flowing; "failed" = ICE couldn't
-    // find a path between the two peers (common without a TURN server
-    // on restrictive networks).
+    // "connected" = media should be flowing; "failed" means the two peers
+    // couldn't find any usable path (even through TURN) and never will
+    // without a fresh attempt — unlike "disconnected" (often a brief blip
+    // that recovers on its own), "failed" is terminal, so we end the call
+    // instead of leaving the UI stuck showing a permanently blank video.
     pc.oniceconnectionstatechange = () => {
       console.log("ICE connection state:", pc.iceConnectionState);
+      if (pc.iceConnectionState === "failed") {
+        console.error("ICE connection failed — ending call");
+        if (otherUserId.current) socket.emit("end-call", { to: otherUserId.current });
+        alert("Call connection failed. Please try again.");
+        resetCallState();
+      }
     };
+
+    // ICE reporting "connected" only means a candidate pair was selected —
+    // it doesn't guarantee media packets are actually flowing over it
+    // (this can happen with unreliable TURN relays under load). Logging
+    // real byte counts every few seconds tells us definitively whether
+    // audio/video data is actually arriving, instead of guessing from the
+    // connection state alone.
+    const statsInterval = setInterval(async () => {
+      if (pc.connectionState === "closed") {
+        clearInterval(statsInterval);
+        return;
+      }
+      const stats = await pc.getStats();
+      stats.forEach((report) => {
+        if (report.type === "inbound-rtp" && !report.isRemote) {
+          console.log(
+            `[stats] inbound ${report.kind}: bytesReceived=${report.bytesReceived}, packetsReceived=${report.packetsReceived}, packetsLost=${report.packetsLost}`
+          );
+        }
+        if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
+          console.log(
+            `[stats] active candidate pair: bytesSent=${report.bytesSent}, bytesReceived=${report.bytesReceived}, localCandidateType=${report.localCandidateId}`
+          );
+        }
+      });
+    }, 3000);
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "closed" || pc.connectionState === "failed") {
+        clearInterval(statsInterval);
+      }
+    });
 
     return pc;
   };
@@ -226,6 +285,7 @@ export default function Chat() {
 
   const startCall = async () => {
     if (!activeUser) return;
+    if (callStatus !== "idle") return; // already on a call — the disabled button should prevent this, but guard anyway
     otherUserId.current = activeUser._id;
 
     let stream;
@@ -244,6 +304,11 @@ export default function Chat() {
       return;
     }
     setLocalStream(stream);
+
+    // Defensive: close out any stale connection from a previous attempt
+    // that didn't get cleaned up, so it can't linger and interfere.
+    peerConnection.current?.close();
+    pendingCandidates.current = [];
 
     const pc = createPeerConnection(activeUser._id);
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -279,6 +344,11 @@ export default function Chat() {
     }
     setLocalStream(stream);
 
+    // Defensive: close out any stale connection from a previous attempt
+    // that didn't get cleaned up, so it can't linger and interfere.
+    peerConnection.current?.close();
+    pendingCandidates.current = [];
+
     const pc = createPeerConnection(from);
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
     peerConnection.current = pc;
@@ -294,26 +364,14 @@ export default function Chat() {
 
   const declineCall = () => {
     socket.emit("decline-call", { to: incomingCall.from });
-    pendingCandidates.current = [];
-    setIncomingCall(null);
-    setCallStatus("idle");
-    otherUserId.current = null;
+    resetCallState();
   };
 
   const endCall = () => {
     if (otherUserId.current) {
       socket.emit("end-call", { to: otherUserId.current });
     }
-    peerConnection.current?.close();
-    peerConnection.current = null;
-    pendingCandidates.current = [];
-    localStream?.getTracks().forEach((t) => t.stop());
-    setLocalStream(null);
-    setRemoteStream(null);
-    setFacingMode("user");
-    setCallStatus("idle");
-    setIncomingCall(null);
-    otherUserId.current = null;
+    resetCallState();
   };
 
   const switchCamera = async () => {
