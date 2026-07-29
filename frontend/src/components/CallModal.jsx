@@ -12,44 +12,39 @@ export default function CallModal({
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  // Browsers can silently block autoplay of the remote video/audio unless
-  // it's triggered by a recent, direct user interaction — this can happen
-  // even though the tracks arrived successfully. When that happens we show
-  // a manual "tap to enable" button, which counts as a fresh user gesture
-  // and lets playback proceed.
-  const [needsTapToPlay, setNeedsTapToPlay] = useState(false);
+  // Muted video is allowed to autoplay in every browser, no exceptions —
+  // it's *audio* autoplay that gets blocked without a user gesture. Rather
+  // than fight that restriction on the combined video+audio element (which
+  // is unreliable — a rejected play() promise doesn't always resolve even
+  // after a manual retry), we start muted so the video is always
+  // guaranteed to show, and treat unmuting as a separate, simpler action.
+  const [isMuted, setIsMuted] = useState(true);
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
-      localVideoRef.current.play().catch(() => {
-        // Local video is muted, so autoplay is almost always allowed —
-        // if it's still blocked there's nothing actionable to do here.
-      });
+      localVideoRef.current.play().catch(() => {});
     }
   }, [localStream]);
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      const videoEl = remoteVideoRef.current;
-      videoEl.srcObject = remoteStream;
-      const playPromise = videoEl.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => setNeedsTapToPlay(false))
-          .catch((err) => {
-            console.warn("Autoplay blocked, waiting for a tap to start playback:", err);
-            setNeedsTapToPlay(true);
-          });
-      }
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch((err) => {
+        console.warn("Remote video play() failed even muted — unusual:", err);
+      });
     }
+    if (!remoteStream) setIsMuted(true); // reset for the next call
   }, [remoteStream]);
 
-  const handleTapToPlay = () => {
-    remoteVideoRef.current
-      ?.play()
-      .then(() => setNeedsTapToPlay(false))
-      .catch((err) => console.error("Still couldn't play after tap:", err));
+  const toggleMute = () => {
+    if (!remoteVideoRef.current) return;
+    const nextMuted = !remoteVideoRef.current.muted;
+    remoteVideoRef.current.muted = nextMuted;
+    setIsMuted(nextMuted);
+    // Re-assert play() right after unmuting — some browsers pause
+    // playback the moment audio is enabled without a fresh play() call.
+    remoteVideoRef.current.play().catch((err) => console.error("Play after unmute failed:", err));
   };
 
   if (callStatus === "idle") return null;
@@ -97,6 +92,7 @@ export default function CallModal({
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
+                  muted={isMuted}
                   className="w-full min-h-[270px] rounded-lg bg-black block"
                 />
               ) : (
@@ -105,12 +101,12 @@ export default function CallModal({
                 </div>
               )}
 
-              {remoteStream && needsTapToPlay && (
+              {remoteStream && (
                 <button
-                  onClick={handleTapToPlay}
-                  className="absolute inset-0 bg-black/70 flex items-center justify-center text-white text-sm font-medium rounded-lg"
+                  onClick={toggleMute}
+                  className="absolute bottom-2 left-2 bg-black/60 hover:bg-black/80 text-white text-xs px-3 py-1.5 rounded-full"
                 >
-                  🔇 Tap to enable video &amp; audio
+                  {isMuted ? "🔇 Tap to unmute" : "🔊 Mute"}
                 </button>
               )}
 
