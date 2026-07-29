@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function CallModal({
   callStatus,
@@ -12,18 +12,45 @@ export default function CallModal({
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  // Browsers can silently block autoplay of the remote video/audio unless
+  // it's triggered by a recent, direct user interaction — this can happen
+  // even though the tracks arrived successfully. When that happens we show
+  // a manual "tap to enable" button, which counts as a fresh user gesture
+  // and lets playback proceed.
+  const [needsTapToPlay, setNeedsTapToPlay] = useState(false);
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {
+        // Local video is muted, so autoplay is almost always allowed —
+        // if it's still blocked there's nothing actionable to do here.
+      });
     }
   }, [localStream]);
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
+      const videoEl = remoteVideoRef.current;
+      videoEl.srcObject = remoteStream;
+      const playPromise = videoEl.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setNeedsTapToPlay(false))
+          .catch((err) => {
+            console.warn("Autoplay blocked, waiting for a tap to start playback:", err);
+            setNeedsTapToPlay(true);
+          });
+      }
     }
   }, [remoteStream]);
+
+  const handleTapToPlay = () => {
+    remoteVideoRef.current
+      ?.play()
+      .then(() => setNeedsTapToPlay(false))
+      .catch((err) => console.error("Still couldn't play after tap:", err));
+  };
 
   if (callStatus === "idle") return null;
 
@@ -76,6 +103,15 @@ export default function CallModal({
                 <div className="w-full min-h-[270px] rounded-lg bg-black flex items-center justify-center text-gray-400 text-sm">
                   Connecting video…
                 </div>
+              )}
+
+              {remoteStream && needsTapToPlay && (
+                <button
+                  onClick={handleTapToPlay}
+                  className="absolute inset-0 bg-black/70 flex items-center justify-center text-white text-sm font-medium rounded-lg"
+                >
+                  🔇 Tap to enable video &amp; audio
+                </button>
               )}
 
               <div className="absolute bottom-2 right-2">
