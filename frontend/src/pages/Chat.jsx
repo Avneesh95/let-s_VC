@@ -27,12 +27,17 @@ export default function Chat() {
   const [incomingCall, setIncomingCall] = useState(null); // { from, offer, callerName }
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [facingMode, setFacingMode] = useState("user"); // "user" = front camera, "environment" = back
   const peerConnection = useRef(null);
   const otherUserId = useRef(null); // whoever we're calling / being called by
+  // ICE candidates can arrive before the peer connection exists yet (e.g. the
+  // callee hasn't clicked "Accept" while the caller is already trickling
+  // candidates) — queue them here and flush once the connection is ready.
+  const pendingCandidates = useRef([]);
 
-  // Load contact list once
-  useEffect(() => {
-    api
+  // Load contact list, reusable so friend actions can refresh it
+  const refreshUsers = useCallback(() => {
+    return api
       .get("/users")
       .then((res) => setUsers(res.data))
       .catch((err) => {
@@ -40,6 +45,19 @@ export default function Chat() {
         setUsers([]);
       });
   }, []);
+
+  useEffect(() => {
+    refreshUsers();
+  }, [refreshUsers]);
+
+  // Keep the currently-open chat's friend status in sync after any
+  // friend-list refresh (e.g. right after accepting their request)
+  useEffect(() => {
+    if (!activeUser) return;
+    const updated = users.find((u) => u._id === activeUser._id);
+    if (updated) setActiveUser(updated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users]);
 
   // Load conversation history whenever the active chat changes
   useEffect(() => {
@@ -92,9 +110,11 @@ export default function Chat() {
     const cleanupCall = () => {
       peerConnection.current?.close();
       peerConnection.current = null;
+      pendingCandidates.current = [];
       localStream?.getTracks().forEach((t) => t.stop());
       setLocalStream(null);
       setRemoteStream(null);
+      setFacingMode("user");
       setCallStatus("idle");
       setIncomingCall(null);
       otherUserId.current = null;
@@ -107,26 +127,42 @@ export default function Chat() {
     };
 
     const handleCallAnswered = async ({ answer }) => {
-      await peerConnection.current?.setRemoteDescription(new RTCSessionDescription(answer));
+      const pc = peerConnection.current;
+      if (!pc) return;
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushPendingCandidates(pc);
       setCallStatus("in-call");
     };
 
     const handleIceCandidate = async ({ candidate }) => {
-      try {
-        await peerConnection.current?.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error("Failed to add ICE candidate", err);
+      const pc = peerConnection.current;
+      // Only apply a candidate once the connection exists AND has a remote
+      // description set — applying earlier throws or silently no-ops,
+      // which is exactly what was causing one-sided/no video before.
+      if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.error("Failed to add ICE candidate", err);
+        }
+      } else {
+        pendingCandidates.current.push(candidate);
       }
     };
 
     const handleCallEnded = () => cleanupCall();
     const handleCallDeclined = () => cleanupCall();
+    const handleCallError = ({ message }) => {
+      alert(message);
+      cleanupCall();
+    };
 
     socket.on("incoming-call", handleIncomingCall);
     socket.on("call-answered", handleCallAnswered);
     socket.on("ice-candidate", handleIceCandidate);
     socket.on("call-ended", handleCallEnded);
     socket.on("call-declined", handleCallDeclined);
+    socket.on("call-error", handleCallError);
 
     return () => {
       socket.off("incoming-call", handleIncomingCall);
@@ -134,6 +170,7 @@ export default function Chat() {
       socket.off("ice-candidate", handleIceCandidate);
       socket.off("call-ended", handleCallEnded);
       socket.off("call-declined", handleCallDeclined);
+      socket.off("call-error", handleCallError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, localStream]);
@@ -152,6 +189,19 @@ export default function Chat() {
     };
 
     return pc;
+  };
+
+  // Applies any ICE candidates that arrived before the remote description
+  // was set (see handleIceCandidate above for why this queue exists).
+  const flushPendingCandidates = async (pc) => {
+    while (pendingCandidates.current.length > 0) {
+      const candidate = pendingCandidates.current.shift();
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error("Failed to add queued ICE candidate", err);
+      }
+    }
   };
 
   const startCall = async () => {
@@ -182,6 +232,7 @@ export default function Chat() {
     peerConnection.current = pc;
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    await flushPendingCandidates(pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -191,6 +242,7 @@ export default function Chat() {
 
   const declineCall = () => {
     socket.emit("decline-call", { to: incomingCall.from });
+    pendingCandidates.current = [];
     setIncomingCall(null);
     setCallStatus("idle");
     otherUserId.current = null;
@@ -202,12 +254,77 @@ export default function Chat() {
     }
     peerConnection.current?.close();
     peerConnection.current = null;
+    pendingCandidates.current = [];
     localStream?.getTracks().forEach((t) => t.stop());
     setLocalStream(null);
     setRemoteStream(null);
+    setFacingMode("user");
     setCallStatus("idle");
     setIncomingCall(null);
     otherUserId.current = null;
+  };
+
+  const switchCamera = async () => {
+    if (!localStream) return;
+    const newFacingMode = facingMode === "user" ? "environment" : "user";
+
+    try {
+      const newVideoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newFacingMode },
+        audio: false,
+      });
+      const newVideoTrack = newVideoStream.getVideoTracks()[0];
+
+      // Swap the track being sent to the other peer — this is the key call
+      // that lets us change cameras mid-call without renegotiating or
+      // dropping the connection.
+      const sender = peerConnection.current
+        ?.getSenders()
+        .find((s) => s.track?.kind === "video");
+      if (sender) await sender.replaceTrack(newVideoTrack);
+
+      // Rebuild the local preview stream with the new video track (keeps
+      // the existing audio track untouched)
+      const oldVideoTrack = localStream.getVideoTracks()[0];
+      oldVideoTrack?.stop();
+      const combinedStream = new MediaStream([
+        newVideoTrack,
+        ...localStream.getAudioTracks(),
+      ]);
+
+      setLocalStream(combinedStream);
+      setFacingMode(newFacingMode);
+    } catch (err) {
+      // Most common cause: device only has one camera (e.g. a laptop)
+      console.error("Could not switch camera:", err);
+    }
+  };
+
+  const handleAddFriend = async (userId) => {
+    try {
+      await api.post(`/friends/request/${userId}`);
+      refreshUsers();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to send request");
+    }
+  };
+
+  const handleAcceptRequest = async (requestId) => {
+    try {
+      await api.post(`/friends/accept/${requestId}`);
+      refreshUsers();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to accept request");
+    }
+  };
+
+  const handleRejectRequest = async (requestId) => {
+    try {
+      await api.post(`/friends/reject/${requestId}`);
+      refreshUsers();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to reject request");
+    }
   };
 
   const sendMessage = useCallback(
@@ -237,27 +354,35 @@ export default function Chat() {
     callStatus === "incoming" ? incomingCall?.callerName : activeUser?.username;
 
   return (
-    <div className="chat-page">
-      <Sidebar
-        users={users}
-        activeUser={activeUser}
-        onSelect={setActiveUser}
-        onlineUsers={onlineUsers}
-        currentUser={user}
-        onLogout={logout}
-      />
-      <ChatWindow
-        activeUser={activeUser}
-        messages={messages}
-        currentUserId={user.id}
-        onSend={sendMessage}
-        onSendImage={sendImage}
-        onTyping={handleTyping}
-        onStopTyping={handleStopTyping}
-        isOtherTyping={isOtherTyping}
-        onStartCall={startCall}
-        isUserOnline={activeUser ? onlineUsers.includes(activeUser._id) : false}
-      />
+    <div className="flex h-dvh md:h-screen">
+      <div className={`${activeUser ? "hidden md:flex" : "flex"} w-full md:w-auto`}>
+        <Sidebar
+          users={users}
+          activeUser={activeUser}
+          onSelect={setActiveUser}
+          onlineUsers={onlineUsers}
+          currentUser={user}
+          onLogout={logout}
+          onAddFriend={handleAddFriend}
+          onAcceptRequest={handleAcceptRequest}
+          onRejectRequest={handleRejectRequest}
+        />
+      </div>
+      <div className={`${activeUser ? "flex" : "hidden md:flex"} flex-1`}>
+        <ChatWindow
+          activeUser={activeUser}
+          messages={messages}
+          currentUserId={user.id}
+          onSend={sendMessage}
+          onSendImage={sendImage}
+          onTyping={handleTyping}
+          onStopTyping={handleStopTyping}
+          isOtherTyping={isOtherTyping}
+          onStartCall={startCall}
+          isUserOnline={activeUser ? onlineUsers.includes(activeUser._id) : false}
+          onBack={() => setActiveUser(null)}
+        />
+      </div>
       <CallModal
         callStatus={callStatus}
         callerName={callerDisplayName}
@@ -266,6 +391,7 @@ export default function Chat() {
         onAccept={acceptCall}
         onDecline={declineCall}
         onEnd={endCall}
+        onSwitchCamera={switchCamera}
       />
     </div>
   );

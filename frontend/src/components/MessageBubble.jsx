@@ -5,14 +5,18 @@ export default function MessageBubble({ message, isOwn }) {
   });
 
   return (
-    <div className={`bubble-row ${isOwn ? "own" : ""}`}>
-      <div className={`bubble ${isOwn ? "own" : "other"} ${message.type === "image" ? "image-bubble" : ""}`}>
+    <div className={`flex mb-2 ${isOwn ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[78%] md:max-w-[60%] rounded-lg px-3 py-2 ${
+          isOwn ? "bg-bubbleOwn" : "bg-white"
+        } ${message.type === "image" ? "p-1" : ""}`}
+      >
         {message.type === "image" ? (
-          <img src={message.mediaUrl} alt="shared" className="shared-image" />
+          <img src={message.mediaUrl} alt="shared" className="max-w-[240px] max-h-[240px] rounded-md block" />
         ) : (
-          <p>{message.text}</p>
+          <p className="text-sm break-words">{message.text}</p>
         )}
-        <span className="bubble-time">{time}</span>
+        <span className="block text-[10px] text-gray-400 text-right mt-0.5">{time}</span>
       </div>
     </div>
   );

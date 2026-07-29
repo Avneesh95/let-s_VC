@@ -19,6 +19,10 @@ export function SocketProvider({ children }) {
     const token = localStorage.getItem("token");
     const newSocket = io(import.meta.env.VITE_API_URL, {
       auth: { token },
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
 
     newSocket.on("online-users", (ids) => setOnlineUsers(ids));

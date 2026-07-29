@@ -12,11 +12,15 @@ every feature maps to one clear technical concept, nothing extra to justify.
 - Typing indicator
 - Image sharing (upload to Cloudinary, sent as a message)
 - 1-on-1 video calling (WebRTC, signaled over the existing Socket.IO connection)
+- Front/back camera switching mid-call (mobile)
+- Friend system: send/accept/reject friend requests — only friends can call each other
+- Responsive layout (Tailwind CSS)
 
 **Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
 group chats/calls, screen sharing, call recording, message read receipts, message
-editing, push notifications, a TURN server (see WebRTC section below).
-Each would be a reasonable "what would you add next" answer.
+editing, push notifications, a TURN server (see WebRTC section below), friend removal
+(you can reject a pending request but not un-friend someone once accepted — a
+reasonable "what's next" answer).
 
 ## Architecture
 ```
@@ -110,3 +114,16 @@ npm run dev
   directly?** The two browsers don't know how to reach each other yet — they need a
   shared channel to exchange connection info first. Once that handshake finishes, media
   flows peer-to-peer and the server drops out of the picture entirely.
+- **How does camera switching work without dropping the call?** `RTCRtpSender.replaceTrack()`
+  swaps the outgoing video track on the existing peer connection in place — no offer/answer
+  renegotiation needed, so the call doesn't interrupt or reconnect.
+- **Friend system & authorization**: a `FriendRequest` document only exists while
+  pending — accepting it adds each user's ID to the other's `friends` array (on the
+  `User` model) and deletes the request; rejecting just deletes it. There's
+  deliberately no `status` field to track — "pending" is just "the document exists."
+  The important part: the friends-only calling rule is enforced **server-side**, inside
+  the `call-user` socket handler, not just by disabling the button in the UI. A
+  disabled button is a UX nicety; the actual authorization check has to live
+  somewhere the client can't bypass it by editing JavaScript in devtools. This
+  distinction (client-side UX vs. server-side authorization) is a strong thing to
+  articulate in an interview.

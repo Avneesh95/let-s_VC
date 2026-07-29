@@ -41,25 +41,25 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
       alert("Image upload failed");
     } finally {
       setUploading(false);
-      e.target.value = ""; // allow selecting the same file again later
+      e.target.value = "";
     }
   };
 
   return (
-    <form className="message-input" onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-white px-3 py-2 border-t border-gray-200">
       <input
         type="file"
         accept="image/*"
         ref={fileInputRef}
         onChange={handleFileSelect}
-        style={{ display: "none" }}
+        className="hidden"
       />
       <button
         type="button"
-        className="attach-btn"
         onClick={() => fileInputRef.current.click()}
         disabled={uploading}
         title="Send image"
+        className="text-xl px-1 disabled:opacity-50"
       >
         {uploading ? "…" : "📎"}
       </button>
@@ -68,8 +68,14 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
         placeholder="Type a message..."
         value={text}
         onChange={handleChange}
+        className="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
       />
-      <button type="submit">Send</button>
+      <button
+        type="submit"
+        className="bg-brand hover:bg-brand-dark text-white font-semibold rounded-full px-5 py-2 text-sm"
+      >
+        Send
+      </button>
     </form>
   );
 }
