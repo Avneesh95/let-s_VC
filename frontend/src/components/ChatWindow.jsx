@@ -70,7 +70,17 @@ export default function ChatWindow({
         <div ref={bottomRef} />
       </div>
 
-      <MessageInput onSend={onSend} onSendImage={onSendImage} onTyping={onTyping} onStopTyping={onStopTyping} />
+      {isFriend ? (
+        <MessageInput onSend={onSend} onSendImage={onSendImage} onTyping={onTyping} onStopTyping={onStopTyping} />
+      ) : (
+        <div className="bg-white border-t border-gray-200 px-4 py-4 text-center text-sm text-gray-500">
+          {activeUser.friendStatus === "request-sent"
+            ? `Friend request sent — you can chat once ${activeUser.username} accepts.`
+            : activeUser.friendStatus === "request-received"
+            ? `Accept ${activeUser.username}'s friend request in the sidebar to start chatting.`
+            : `Add ${activeUser.username} as a friend to start chatting.`}
+        </div>
+      )}
     </div>
   );
 }

@@ -7,10 +7,33 @@ import ChatWindow from "../components/ChatWindow";
 import CallModal from "../components/CallModal";
 
 const ICE_SERVERS = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  // Note: a STUN server alone is enough for most direct peer-to-peer
-  // connections. Some networks (strict NATs/corporate firewalls) need a
-  // TURN server to relay media — skipped here to keep the project simple.
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    // TURN relay — needed when the two peers are on different real-world
+    // networks (e.g. laptop on home WiFi, phone on mobile data) and can't
+    // find a direct path. STUN alone works great on a shared LAN, which is
+    // why this wasn't needed during local testing — but on an actual
+    // deployment, most real connections go through NAT that STUN can't
+    // punch through, so a TURN relay becomes necessary.
+    // These are the Open Relay Project's public demo credentials — free,
+    // rate-limited, fine for a portfolio project. For production you'd use
+    // your own TURN server (e.g. Twilio, Metered.ca, or self-hosted coturn).
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
 };
 
 export default function Chat() {
@@ -64,7 +87,13 @@ export default function Chat() {
     if (!activeUser) return;
     setMessages([]);
     setIsOtherTyping(false);
-    api.get(`/messages/${activeUser._id}`).then((res) => setMessages(res.data));
+    api
+      .get(`/messages/${activeUser._id}`)
+      .then((res) => setMessages(res.data))
+      .catch((err) => {
+        console.error("Failed to load messages:", err.response?.data || err.message);
+        setMessages([]);
+      });
   }, [activeUser]);
 
   // --- Chat message socket listeners ---
@@ -83,6 +112,7 @@ export default function Chat() {
       });
     };
     const handleSent = (message) => setMessages((prev) => [...prev, message]);
+    const handleMessageError = ({ message }) => alert(message);
     const handleTyping = ({ senderId }) => {
       if (activeUser && senderId === activeUser._id) setIsOtherTyping(true);
     };
@@ -92,12 +122,14 @@ export default function Chat() {
 
     socket.on("receive-message", handleReceive);
     socket.on("message-sent", handleSent);
+    socket.on("message-error", handleMessageError);
     socket.on("typing", handleTyping);
     socket.on("stop-typing", handleStopTyping);
 
     return () => {
       socket.off("receive-message", handleReceive);
       socket.off("message-sent", handleSent);
+      socket.off("message-error", handleMessageError);
       socket.off("typing", handleTyping);
       socket.off("stop-typing", handleStopTyping);
     };
@@ -185,7 +217,16 @@ export default function Chat() {
     };
 
     pc.ontrack = (event) => {
+      console.log("Received remote track:", event.track.kind);
       setRemoteStream(event.streams[0]);
+    };
+
+    // Handy to watch in the console while debugging connection issues:
+    // "connected" = media should be flowing; "failed" = ICE couldn't
+    // find a path between the two peers (common without a TURN server
+    // on restrictive networks).
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE connection state:", pc.iceConnectionState);
     };
 
     return pc;
@@ -208,7 +249,21 @@ export default function Chat() {
     if (!activeUser) return;
     otherUserId.current = activeUser._id;
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (err) {
+      console.error("getUserMedia failed:", err.name, err.message);
+      alert(
+        err.name === "NotReadableError"
+          ? "Camera is already in use by another tab/app. Close other tabs using the camera and try again."
+          : err.name === "NotAllowedError"
+          ? "Camera/mic permission was denied. Check your browser's site permissions."
+          : "Couldn't access camera/mic. Note: on a phone, this only works over HTTPS (or localhost) — plain http://<LAN-IP> will silently block camera access."
+      );
+      otherUserId.current = null;
+      return;
+    }
     setLocalStream(stream);
 
     const pc = createPeerConnection(activeUser._id);
@@ -224,7 +279,25 @@ export default function Chat() {
 
   const acceptCall = async () => {
     const { from, offer } = incomingCall;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (err) {
+      console.error("getUserMedia failed:", err.name, err.message);
+      alert(
+        err.name === "NotReadableError"
+          ? "Camera is already in use by another tab/app. Close other tabs using the camera and try again."
+          : err.name === "NotAllowedError"
+          ? "Camera/mic permission was denied. Check your browser's site permissions."
+          : "Couldn't access camera/mic. Note: on a phone, this only works over HTTPS (or localhost) — plain http://<LAN-IP> will silently block camera access."
+      );
+      socket.emit("decline-call", { to: from });
+      setIncomingCall(null);
+      setCallStatus("idle");
+      otherUserId.current = null;
+      return;
+    }
     setLocalStream(stream);
 
     const pc = createPeerConnection(from);

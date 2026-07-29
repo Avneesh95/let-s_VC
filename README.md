@@ -13,14 +13,13 @@ every feature maps to one clear technical concept, nothing extra to justify.
 - Image sharing (upload to Cloudinary, sent as a message)
 - 1-on-1 video calling (WebRTC, signaled over the existing Socket.IO connection)
 - Front/back camera switching mid-call (mobile)
-- Friend system: send/accept/reject friend requests — only friends can call each other
+- Friend system: send/accept/reject friend requests — only friends can message or call each other
 - Responsive layout (Tailwind CSS)
 
 **Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
 group chats/calls, screen sharing, call recording, message read receipts, message
-editing, push notifications, a TURN server (see WebRTC section below), friend removal
-(you can reject a pending request but not un-friend someone once accepted — a
-reasonable "what's next" answer).
+editing, push notifications, friend removal (you can reject a pending request but
+not un-friend someone once accepted — a reasonable "what's next" answer).
 
 ## Architecture
 ```
@@ -46,10 +45,13 @@ Browser (React) ⇄ WebSocket (Socket.IO) → sending/receiving messages, typing
 - **Video calling (WebRTC)**: the two browsers negotiate a *direct* peer-to-peer
   connection for audio/video — the server is never in the media path, it only relays
   three handshake messages over Socket.IO: the SDP `offer`, the SDP `answer`, and ICE
-  candidates. This is the standard WebRTC signaling pattern. A STUN server (Google's
-  public one) helps each peer discover its public IP; there's no TURN server, so calls
-  will fail to connect on some restrictive networks (corporate firewalls, symmetric
-  NAT) — that's a known, explainable limitation, not a bug.
+  candidates. This is the standard WebRTC signaling pattern. A STUN server helps each
+  peer discover its public IP, and a TURN server (Open Relay Project's free tier here)
+  relays media when a direct path can't be found — common when two peers are on
+  different real-world networks (home WiFi + mobile data, corporate NAT, etc.), which
+  is exactly the case once this is actually deployed rather than tested on one LAN.
+  For production you'd swap in your own TURN credentials (Twilio, Metered.ca, or a
+  self-hosted `coturn`) instead of the public demo ones, since they're rate-limited.
 
 ## Project structure
 ```
@@ -117,13 +119,22 @@ npm run dev
 - **How does camera switching work without dropping the call?** `RTCRtpSender.replaceTrack()`
   swaps the outgoing video track on the existing peer connection in place — no offer/answer
   renegotiation needed, so the call doesn't interrupt or reconnect.
+- **What's the difference between STUN and TURN?** STUN just tells a peer its own
+  public IP/port so the *other* peer can try to connect directly to it — cheap, but
+  only works if the network path allows a direct connection. TURN is a fallback relay
+  server: if a direct path can't be established (common with mobile carrier NAT or
+  strict firewalls), media is routed through the TURN server instead. That's why a
+  call that works fine on the same WiFi can fail once it's phone-on-mobile-data vs
+  laptop-on-home-WiFi — TURN is what recovers it.
 - **Friend system & authorization**: a `FriendRequest` document only exists while
   pending — accepting it adds each user's ID to the other's `friends` array (on the
   `User` model) and deletes the request; rejecting just deletes it. There's
   deliberately no `status` field to track — "pending" is just "the document exists."
-  The important part: the friends-only calling rule is enforced **server-side**, inside
-  the `call-user` socket handler, not just by disabling the button in the UI. A
-  disabled button is a UX nicety; the actual authorization check has to live
-  somewhere the client can't bypass it by editing JavaScript in devtools. This
-  distinction (client-side UX vs. server-side authorization) is a strong thing to
-  articulate in an interview.
+  The important part: the friends-only rule for both **messaging and calling** is
+  enforced **server-side** — in the `send-message` and `call-user` socket handlers,
+  and again in the REST route for fetching message history — not just by hiding UI
+  elements. A disabled button is a UX nicety; the actual authorization check has to
+  live somewhere the client can't bypass it by editing JavaScript in devtools. This
+  distinction (client-side UX vs. server-side authorization, and checking it at
+  *every* entry point that touches the data, not just the obvious one) is a strong
+  thing to articulate in an interview.

@@ -1,5 +1,6 @@
 const express = require("express");
 const Message = require("../models/Message");
+const User = require("../models/User");
 const protect = require("../middleware/auth");
 
 const router = express.Router();
@@ -9,6 +10,13 @@ const router = express.Router();
 router.get("/:otherUserId", protect, async (req, res) => {
   try {
     const { otherUserId } = req.params;
+
+    const me = await User.findById(req.userId).select("friends");
+    const isFriend = me?.friends.some((id) => id.toString() === otherUserId);
+    if (!isFriend) {
+      return res.status(403).json({ message: "You can only view messages with friends" });
+    }
+
     const messages = await Message.find({
       $or: [
         { sender: req.userId, receiver: otherUserId },

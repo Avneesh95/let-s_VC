@@ -28,6 +28,13 @@ function getSocketId(userId) {
   return sockets ? sockets.values().next().value : undefined;
 }
 
+// Shared by both messaging and calling — the friends-only rule is the same
+// authorization check either way, just applied at two different entry points.
+async function areFriends(userId, otherUserId) {
+  const me = await User.findById(userId).select("friends");
+  return !!me?.friends.some((id) => id.toString() === otherUserId);
+}
+
 function initSocket(io) {
   // Every socket connection must present a valid JWT before we let it in.
   io.use((socket, next) => {
@@ -50,6 +57,12 @@ function initSocket(io) {
     socket.on("send-message", async ({ receiverId, text, type = "text", mediaUrl }) => {
       if (type === "text" && !text?.trim()) return;
       if (type === "image" && !mediaUrl) return;
+
+      const isFriend = await areFriends(socket.userId, receiverId);
+      if (!isFriend) {
+        socket.emit("message-error", { message: "You can only message friends" });
+        return;
+      }
 
       try {
         const message = await Message.create({
@@ -97,8 +110,7 @@ function initSocket(io) {
       // button in the UI is a nice-to-have, but the actual rule (only
       // friends can call each other) has to be enforced where it can't be
       // bypassed by editing client code.
-      const me = await User.findById(socket.userId).select("friends");
-      const isFriend = me?.friends.some((id) => id.toString() === to);
+      const isFriend = await areFriends(socket.userId, to);
       if (!isFriend) {
         socket.emit("call-error", { message: "You can only call friends" });
         return;
