@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import generateRoomCode from "../utils/generateRoomCode";
 
 export default function Home() {
   const { user, guestLogin } = useAuth();
@@ -21,14 +20,24 @@ export default function Home() {
       setError("Enter your name first");
       return;
     }
+    if (!roomCode.trim()) {
+      setError("Enter a room code");
+      return;
+    }
     setError("");
     setLoading(true);
     try {
       await guestLogin(name.trim());
-      const code = roomCode.trim() ? roomCode.trim().toUpperCase() : generateRoomCode();
-      navigate(`/room/${code}`);
+      navigate(`/room/${roomCode.trim().toUpperCase()}`);
     } catch (err) {
-      setError("Something went wrong — try again");
+      // Surface the real reason instead of a generic message — a 404 here
+      // usually means the backend hasn't been redeployed with this route yet.
+      console.error("Guest join failed:", err.response?.status, err.response?.data || err.message);
+      setError(
+        err.response?.status === 404
+          ? "Server error: guest login endpoint not found (backend may need redeploying)"
+          : err.response?.data?.message || "Something went wrong — try again"
+      );
     } finally {
       setLoading(false);
     }
@@ -39,10 +48,7 @@ export default function Home() {
       <div className="w-full max-w-sm flex flex-col gap-6">
         <div className="bg-brand text-white rounded-2xl p-6 shadow-lg flex flex-col gap-3">
           <h1 className="text-xl font-bold">🎥 Join a Video Room</h1>
-          <p className="text-sm text-white/80">
-            No account needed — enter your name and a room code (or leave it blank to start a
-            new room).
-          </p>
+          <p className="text-sm text-white/80">No account needed — enter your name and a room code.</p>
           <form onSubmit={handleJoin} className="flex flex-col gap-2">
             <input
               type="text"
@@ -54,21 +60,19 @@ export default function Home() {
             />
             <input
               type="text"
-              placeholder="Room code (optional)"
+              placeholder="Room code"
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value)}
               maxLength={6}
               className="rounded-lg px-3 py-2 text-sm text-gray-900 uppercase focus:outline-none focus:ring-2 focus:ring-white"
             />
-            {error && (
-              <p className="text-xs bg-red-600/60 rounded px-2 py-1.5">{error}</p>
-            )}
+            {error && <p className="text-xs bg-red-600/60 rounded px-2 py-1.5">{error}</p>}
             <button
               type="submit"
               disabled={loading}
               className="bg-white text-brand font-semibold rounded-lg py-2 mt-1 disabled:opacity-60"
             >
-              {loading ? "Joining…" : roomCode.trim() ? "Join Room" : "Start New Room"}
+              {loading ? "Joining…" : "Join Room"}
             </button>
           </form>
         </div>
@@ -80,9 +84,7 @@ export default function Home() {
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow flex flex-col gap-3 text-center">
-          <p className="text-sm text-gray-600">
-            Have an account? Chat and call friends directly.
-          </p>
+          <p className="text-sm text-gray-600">Have an account? Chat and call friends directly.</p>
           <div className="flex gap-2">
             <Link
               to="/login"

@@ -23,8 +23,12 @@ every feature maps to one clear technical concept, nothing extra to justify.
   automatically switching to a grid once 3+ people join — same pattern WhatsApp/Zoom use
 - Camera on/off and mic on/off toggles during any call (1-1 or group), plus front/back camera
   switching — all live, no call interruption
+- Front camera preview is mirrored (like WhatsApp/every video app) — the video actually sent
+  to others is not flipped, only your own local preview
 - Lightweight in-room text chat during group video calls (ephemeral, not saved — matches how
   rooms themselves work)
+- Guests choose their own room code to join (no auto-generated codes) — makes it trivial to
+  share a memorable code with friends before anyone's even online
 
 **Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
 group chats/calls, screen sharing, call recording, message read receipts, message

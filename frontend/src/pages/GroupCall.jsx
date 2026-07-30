@@ -8,7 +8,7 @@ import ICE_SERVERS from "../utils/iceServers";
 // counter, the backend is what actually enforces the cap.
 const MAX_PARTICIPANTS = 6;
 
-function VideoTile({ stream, label, muted, fullSize, cameraOff }) {
+function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -25,12 +25,27 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff }) {
           : "relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center border-2 border-white/80"
       }
     >
-      {cameraOff ? (
-        <span className="text-3xl">📷🚫</span>
-      ) : stream ? (
-        <video ref={videoRef} autoPlay playsInline muted={muted} className="w-full h-full object-cover" />
+      {stream ? (
+        // Always keep the <video> element mounted — toggling camera on/off
+        // only changes whether the placeholder covers it, never unmounts
+        // it. Unmounting and remounting on every toggle was the bug: a
+        // freshly mounted <video> needs srcObject reassigned, but the
+        // effect above only re-runs when `stream` itself changes, not on
+        // every mount, so a toggled-back-on video would stay blank.
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={muted}
+          className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+        />
       ) : (
         <span className="text-gray-400 text-sm">Connecting…</span>
+      )}
+      {cameraOff && (
+        <div className="absolute inset-0 bg-neutral-800 flex items-center justify-center text-3xl">
+          📷🚫
+        </div>
       )}
       <span className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
         {label}
@@ -351,6 +366,7 @@ export default function GroupCall() {
                 muted
                 fullSize
                 cameraOff={!isCameraOn}
+                mirrored={facingMode === "user"}
               />
               <div className="absolute inset-x-0 top-6 flex justify-center">
                 <div className="bg-black/70 rounded-xl px-5 py-3 text-center">
@@ -376,22 +392,38 @@ export default function GroupCall() {
                   label={`${user.username} (You)`}
                   muted
                   cameraOff={!isCameraOn}
+                  mirrored={facingMode === "user"}
                 />
               </div>
             </>
           )}
 
           {participantCount >= 3 && (
-            // 3+ people — everyone (including self) as equal tiles in a grid
-            <div className={`h-full overflow-y-auto p-3 grid ${gridColsClass} gap-3 content-start`}>
+            // 3+ people — everyone (including self) as equal tiles in a grid.
+            // For exactly 3, the 3rd tile spans both columns so it doesn't
+            // sit oddly half-width alone on its own row (matches the
+            // WhatsApp/Zoom pattern of "2 up top, 1 full-width below").
+            <div
+              className={`h-full overflow-y-auto p-3 grid ${gridColsClass} gap-3 auto-rows-fr place-content-center`}
+            >
               <VideoTile
                 stream={localStream}
                 label={`${user.username} (You)`}
                 muted
                 cameraOff={!isCameraOn}
+                mirrored={facingMode === "user"}
               />
-              {otherParticipants.map(([userId, p]) => (
-                <VideoTile key={userId} stream={p.stream} label={p.username} />
+              {otherParticipants.map(([userId, p], i) => (
+                <div
+                  key={userId}
+                  className={
+                    participantCount === 3 && i === otherParticipants.length - 1
+                      ? "col-span-2"
+                      : ""
+                  }
+                >
+                  <VideoTile stream={p.stream} label={p.username} />
+                </div>
               ))}
             </div>
           )}

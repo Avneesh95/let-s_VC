@@ -523,6 +523,7 @@ export default function Chat() {
         onDecline={declineCall}
         onEnd={endCall}
         onSwitchCamera={switchCamera}
+        facingMode={facingMode}
         isCameraOn={isCameraOn}
         isMicOn={isMicOn}
         onToggleCamera={toggleCamera}

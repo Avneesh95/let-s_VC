@@ -31,6 +31,7 @@ export default function CallModal({
   isMicOn,
   onToggleCamera,
   onToggleMic,
+  facingMode,
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -131,16 +132,21 @@ export default function CallModal({
 
         <div className="absolute top-4 right-4 w-28 md:w-40">
           <div className="relative aspect-video rounded-lg overflow-hidden border-2 border-white bg-black">
-            {isCameraOn ? (
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-2xl">
+            {/* Always keep the <video> element mounted — toggling camera
+                on/off only overlays a placeholder, never unmounts it.
+                Unmounting on toggle was the bug: a freshly remounted
+                <video> needs srcObject reassigned, but the effect above
+                only re-runs when localStream itself changes, not on every
+                mount, so turning the camera back on would stay blank. */}
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-cover ${facingMode === "user" ? "-scale-x-100" : ""}`}
+            />
+            {!isCameraOn && (
+              <div className="absolute inset-0 flex items-center justify-center bg-neutral-800 text-2xl">
                 📷🚫
               </div>
             )}
