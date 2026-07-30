@@ -37,7 +37,9 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
           autoPlay
           playsInline
           muted={muted}
-          className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+          className={`w-full h-full ${fullSize ? "object-contain" : "object-cover"} ${
+            mirrored ? "-scale-x-100" : ""
+          }`}
         />
       ) : (
         <span className="text-gray-400 text-sm">Connecting…</span>
@@ -274,10 +276,19 @@ export default function GroupCall() {
   const switchCamera = async () => {
     if (!localStream) return;
     const newFacingMode = facingMode === "user" ? "environment" : "user";
+    const oldVideoTrack = localStream.getVideoTracks()[0];
 
     try {
+      // Stop the old camera track BEFORE requesting a new one — many
+      // devices (especially Android) won't allow two simultaneous camera
+      // sessions, so requesting the new stream while the old one is still
+      // active can silently fail or hang.
+      oldVideoTrack?.stop();
+
       const newVideoStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: newFacingMode },
+        // "ideal" (not exact) lets the browser fall back gracefully if the
+        // requested camera isn't available, instead of hard-rejecting.
+        video: { facingMode: { ideal: newFacingMode } },
         audio: false,
       });
       const newVideoTrack = newVideoStream.getVideoTracks()[0];
@@ -290,14 +301,13 @@ export default function GroupCall() {
         sender?.replaceTrack(newVideoTrack);
       });
 
-      const oldVideoTrack = localStream.getVideoTracks()[0];
-      oldVideoTrack?.stop();
       const combinedStream = new MediaStream([newVideoTrack, ...localStream.getAudioTracks()]);
       localStreamRef.current = combinedStream;
       setLocalStream(combinedStream);
       setFacingMode(newFacingMode);
     } catch (err) {
       console.error("Could not switch camera:", err);
+      alert("Couldn't switch camera — this device may only have one camera available.");
     }
   };
 

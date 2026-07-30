@@ -107,16 +107,15 @@ export default function CallModal({
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
       <div className="flex-1 relative">
-        {remoteStream ? (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            muted={isMuted}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          muted={isMuted}
+          className="w-full h-full object-contain bg-black"
+        />
+        {!remoteStream && (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
             Connecting video…
           </div>
         )}
