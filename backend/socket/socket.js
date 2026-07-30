@@ -244,6 +244,24 @@ function initSocket(io) {
       }
     });
 
+    // Lightweight in-room text chat. No persistence (matches how rooms
+    // themselves work — ephemeral, in-memory only) and no friendship check
+    // needed, since being in the room at all is the only authorization this
+    // needs (same principle as the video signaling above). Using io.to
+    // (not socket.to) so the sender also gets their own message echoed
+    // back, keeping the client's message list a single source of truth.
+    socket.on("room-chat-message", ({ roomCode, text }) => {
+      if (!text?.trim() || socket.currentRoom !== roomCode) return;
+      const room = rooms.get(roomCode);
+      const senderInfo = room?.get(socket.userId);
+      io.to(roomCode).emit("room-chat-message", {
+        senderId: socket.userId,
+        username: senderInfo?.username || "Unknown",
+        text: text.trim().slice(0, 500),
+        timestamp: Date.now(),
+      });
+    });
+
     // --- Disconnect ---
     socket.on("disconnect", () => {
       removeSocket(socket.userId, socket.id);

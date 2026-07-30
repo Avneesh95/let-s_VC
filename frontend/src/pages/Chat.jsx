@@ -22,6 +22,8 @@ export default function Chat() {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [facingMode, setFacingMode] = useState("user"); // "user" = front camera, "environment" = back
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isMicOn, setIsMicOn] = useState(true);
   const peerConnection = useRef(null);
   const otherUserId = useRef(null); // whoever we're calling / being called by
   // ICE candidates can arrive before the peer connection exists yet (e.g. the
@@ -57,6 +59,8 @@ export default function Chat() {
     setLocalStream(null);
     setRemoteStream(null);
     setFacingMode("user");
+    setIsCameraOn(true);
+    setIsMicOn(true);
     setCallStatus("idle");
     setIncomingCall(null);
     otherUserId.current = null;
@@ -410,6 +414,23 @@ export default function Chat() {
     }
   };
 
+  // Toggling .enabled on a track (rather than removing/re-adding it) is the
+  // standard mute/unmute pattern — no renegotiation needed, and the change
+  // is instantly visible to the other side since it's the same track.
+  const toggleCamera = () => {
+    const track = localStream?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsCameraOn(track.enabled);
+  };
+
+  const toggleMic = () => {
+    const track = localStream?.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsMicOn(track.enabled);
+  };
+
   const handleAddFriend = async (userId) => {
     try {
       await api.post(`/friends/request/${userId}`);
@@ -502,6 +523,10 @@ export default function Chat() {
         onDecline={declineCall}
         onEnd={endCall}
         onSwitchCamera={switchCamera}
+        isCameraOn={isCameraOn}
+        isMicOn={isMicOn}
+        onToggleCamera={toggleCamera}
+        onToggleMic={toggleMic}
       />
     </div>
   );

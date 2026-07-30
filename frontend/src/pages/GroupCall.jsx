@@ -8,7 +8,7 @@ import ICE_SERVERS from "../utils/iceServers";
 // counter, the backend is what actually enforces the cap.
 const MAX_PARTICIPANTS = 6;
 
-function VideoTile({ stream, label, muted }) {
+function VideoTile({ stream, label, muted, fullSize, cameraOff }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -18,8 +18,16 @@ function VideoTile({ stream, label, muted }) {
   }, [stream]);
 
   return (
-    <div className="relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center">
-      {stream ? (
+    <div
+      className={
+        fullSize
+          ? "relative w-full h-full bg-black overflow-hidden flex items-center justify-center"
+          : "relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center border-2 border-white/80"
+      }
+    >
+      {cameraOff ? (
+        <span className="text-3xl">📷🚫</span>
+      ) : stream ? (
         <video ref={videoRef} autoPlay playsInline muted={muted} className="w-full h-full object-cover" />
       ) : (
         <span className="text-gray-400 text-sm">Connecting…</span>
@@ -41,6 +49,12 @@ export default function GroupCall() {
   // userId -> { username, stream }
   const [participants, setParticipants] = useState({});
   const [error, setError] = useState("");
+  const [facingMode, setFacingMode] = useState("user");
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isMicOn, setIsMicOn] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]); // { senderId, username, text, timestamp }
+  const [chatInput, setChatInput] = useState("");
 
   const peerConnections = useRef(new Map()); // userId -> RTCPeerConnection
   const pendingCandidates = useRef(new Map()); // userId -> queued candidates
@@ -182,6 +196,10 @@ export default function GroupCall() {
 
     const handleRoomError = ({ message }) => setError(message);
 
+    const handleChatMessage = (msg) => {
+      setChatMessages((prev) => [...prev, msg]);
+    };
+
     socket.on("existing-participants", handleExistingParticipants);
     socket.on("user-joined-room", handleUserJoined);
     socket.on("room-offer", handleRoomOffer);
@@ -189,6 +207,7 @@ export default function GroupCall() {
     socket.on("room-ice-candidate", handleIceCandidate);
     socket.on("user-left-room", handleUserLeft);
     socket.on("room-error", handleRoomError);
+    socket.on("room-chat-message", handleChatMessage);
 
     return () => {
       socket.off("existing-participants", handleExistingParticipants);
@@ -198,6 +217,7 @@ export default function GroupCall() {
       socket.off("room-ice-candidate", handleIceCandidate);
       socket.off("user-left-room", handleUserLeft);
       socket.off("room-error", handleRoomError);
+      socket.off("room-chat-message", handleChatMessage);
     };
   }, [socket, createPeerConnection]);
 
@@ -215,12 +235,64 @@ export default function GroupCall() {
 
   const leaveRoom = () => navigate("/");
 
+  const toggleCamera = () => {
+    const track = localStream?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsCameraOn(track.enabled);
+  };
+
+  const toggleMic = () => {
+    const track = localStream?.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsMicOn(track.enabled);
+  };
+
+  const sendChatMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    socket.emit("room-chat-message", { roomCode, text: chatInput });
+    setChatInput("");
+  };
+
+  const switchCamera = async () => {
+    if (!localStream) return;
+    const newFacingMode = facingMode === "user" ? "environment" : "user";
+
+    try {
+      const newVideoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newFacingMode },
+        audio: false,
+      });
+      const newVideoTrack = newVideoStream.getVideoTracks()[0];
+
+      // Unlike a 1-1 call there isn't just one connection to update — swap
+      // the outgoing video track on every peer connection in the room at
+      // once, so everyone keeps seeing us without the call dropping.
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+        sender?.replaceTrack(newVideoTrack);
+      });
+
+      const oldVideoTrack = localStream.getVideoTracks()[0];
+      oldVideoTrack?.stop();
+      const combinedStream = new MediaStream([newVideoTrack, ...localStream.getAudioTracks()]);
+      localStreamRef.current = combinedStream;
+      setLocalStream(combinedStream);
+      setFacingMode(newFacingMode);
+    } catch (err) {
+      console.error("Could not switch camera:", err);
+    }
+  };
+
   const copyInviteLink = () => {
     navigator.clipboard.writeText(window.location.href);
     alert("Room link copied!");
   };
 
-  const participantCount = Object.keys(participants).length + 1; // +1 for self
+  const otherParticipants = Object.entries(participants); // [userId, {username, stream}][]
+  const participantCount = otherParticipants.length + 1; // +1 for self
 
   if (error) {
     return (
@@ -240,6 +312,10 @@ export default function GroupCall() {
       </div>
     );
   }
+
+  // Grid columns scale with how many people are actually in the room —
+  // 3-4 people fit comfortably 2-per-row, 5-6 fit better 3-per-row.
+  const gridColsClass = participantCount <= 4 ? "grid-cols-2" : "grid-cols-3";
 
   return (
     <div className="h-dvh md:h-screen bg-neutral-900 text-white flex flex-col">
@@ -263,11 +339,141 @@ export default function GroupCall() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 grid grid-cols-2 md:grid-cols-3 gap-3 content-start">
-        <VideoTile stream={localStream} label={`${user.username} (You)`} muted />
-        {Object.entries(participants).map(([userId, p]) => (
-          <VideoTile key={userId} stream={p.stream} label={p.username} />
-        ))}
+      <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 relative">
+          {participantCount === 1 && (
+            // Alone in the room — show self full-screen with a clear invite prompt,
+            // since there's nothing else to show yet.
+            <>
+              <VideoTile
+                stream={localStream}
+                label={`${user.username} (You)`}
+                muted
+                fullSize
+                cameraOff={!isCameraOn}
+              />
+              <div className="absolute inset-x-0 top-6 flex justify-center">
+                <div className="bg-black/70 rounded-xl px-5 py-3 text-center">
+                  <p className="text-sm text-gray-300">Waiting for others to join…</p>
+                  <p className="text-lg font-bold tracking-widest mt-1">{roomCode}</p>
+                </div>
+              </div>
+            </>
+          )}
+
+          {participantCount === 2 && (
+            // Exactly one other person — full-screen for them, small PiP for self,
+            // same layout as the 1-1 call.
+            <>
+              <VideoTile
+                stream={otherParticipants[0][1].stream}
+                label={otherParticipants[0][1].username}
+                fullSize
+              />
+              <div className="absolute top-4 right-4 w-28 md:w-40">
+                <VideoTile
+                  stream={localStream}
+                  label={`${user.username} (You)`}
+                  muted
+                  cameraOff={!isCameraOn}
+                />
+              </div>
+            </>
+          )}
+
+          {participantCount >= 3 && (
+            // 3+ people — everyone (including self) as equal tiles in a grid
+            <div className={`h-full overflow-y-auto p-3 grid ${gridColsClass} gap-3 content-start`}>
+              <VideoTile
+                stream={localStream}
+                label={`${user.username} (You)`}
+                muted
+                cameraOff={!isCameraOn}
+              />
+              {otherParticipants.map(([userId, p]) => (
+                <VideoTile key={userId} stream={p.stream} label={p.username} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {chatOpen && (
+          <div className="w-72 max-w-[80vw] bg-neutral-800 flex flex-col border-l border-neutral-700">
+            <div className="px-3 py-2 border-b border-neutral-700 font-semibold text-sm">
+              Room Chat
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+              {chatMessages.length === 0 && (
+                <p className="text-xs text-gray-500 text-center mt-4">No messages yet</p>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} className="text-sm">
+                  <span className="font-semibold text-brand">{m.username}: </span>
+                  <span className="break-words">{m.text}</span>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={sendChatMessage} className="p-2 border-t border-neutral-700 flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Message…"
+                className="flex-1 min-w-0 bg-neutral-700 rounded-full px-3 py-1.5 text-sm focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="bg-brand hover:bg-brand-dark rounded-full px-3 py-1.5 text-sm"
+              >
+                Send
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-neutral-900 py-4 flex items-center justify-center gap-3">
+        <button
+          onClick={toggleMic}
+          title={isMicOn ? "Mute mic" : "Unmute mic"}
+          className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${
+            isMicOn ? "bg-neutral-700 hover:bg-neutral-600" : "bg-white text-black"
+          }`}
+        >
+          {isMicOn ? "🎤" : "🔇"}
+        </button>
+        <button
+          onClick={toggleCamera}
+          title={isCameraOn ? "Turn off camera" : "Turn on camera"}
+          className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${
+            isCameraOn ? "bg-neutral-700 hover:bg-neutral-600" : "bg-white text-black"
+          }`}
+        >
+          {isCameraOn ? "📷" : "🚫"}
+        </button>
+        <button
+          onClick={switchCamera}
+          title="Switch camera"
+          className="w-12 h-12 rounded-full bg-neutral-700 hover:bg-neutral-600 flex items-center justify-center text-lg"
+        >
+          🔄
+        </button>
+        <button
+          onClick={() => setChatOpen((v) => !v)}
+          title="Toggle chat"
+          className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${
+            chatOpen ? "bg-brand" : "bg-neutral-700 hover:bg-neutral-600"
+          }`}
+        >
+          💬
+        </button>
+        <button
+          onClick={leaveRoom}
+          title="Leave call"
+          className="w-14 h-12 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white text-xl"
+        >
+          ✕
+        </button>
       </div>
     </div>
   );

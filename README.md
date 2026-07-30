@@ -17,6 +17,14 @@ every feature maps to one clear technical concept, nothing extra to justify.
 - Responsive layout (Tailwind CSS)
 - Group video calls (up to 6 people) via shareable room codes — no friendship required to join
   a room, since the room code itself is the invite (like a Zoom/Meet link)
+- Guest access: anyone can join a video room with just a name — no account needed. The full
+  chat/friends app still requires login/register; guests only ever see the video room.
+- Adaptive call layout: full-screen + small self-preview for 1-on-1-sized rooms (1-2 people),
+  automatically switching to a grid once 3+ people join — same pattern WhatsApp/Zoom use
+- Camera on/off and mic on/off toggles during any call (1-1 or group), plus front/back camera
+  switching — all live, no call interruption
+- Lightweight in-room text chat during group video calls (ephemeral, not saved — matches how
+  rooms themselves work)
 
 **Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
 group chats/calls, screen sharing, call recording, message read receipts, message
@@ -146,6 +154,21 @@ npm run dev
   in memory on the server (no database model) since a room is really just "whoever
   currently has the link open" — it's created the moment the first person joins and
   disappears once the last person leaves.
+- **Guest access is a stateless JWT, not a database row.** `POST /api/auth/guest` takes
+  just a name and signs a short-lived (12h) token carrying a random id — no MongoDB
+  write at all. This works because the socket auth middleware only verifies the JWT
+  signature and never checks whether that user id exists in the database; the
+  room-signaling code path (join/offer/answer/ICE) never touches the `User` model
+  either. Guests are fully capable of joining and using video rooms, but the `/chat`
+  route (friends, messaging, 1-1 calls) explicitly checks `user.isGuest` and redirects
+  them away, since those features are backed by a real account. This is a clean
+  illustration of scoping a feature to exactly the data it needs — video rooms don't
+  need identity, so guests don't need an account.
+- **Camera/mic on-off toggles**: rather than removing tracks from the peer connection
+  (which would require renegotiation — a fresh offer/answer round trip), toggling
+  `track.enabled = false` is the standard mute/unmute pattern. The track stays attached
+  to the connection, just stops producing frames/audio — instant on both sides, no
+  renegotiation, no risk of dropping the call.
 - **Friend system & authorization**: a `FriendRequest` document only exists while
   pending — accepting it adds each user's ID to the other's `friends` array (on the
   `User` model) and deletes the request; rejecting just deletes it. There's

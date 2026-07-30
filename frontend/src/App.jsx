@@ -1,26 +1,31 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
+import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Chat from "./pages/Chat";
 import GroupCall from "./pages/GroupCall";
 
-function PrivateRoute({ children }) {
+function PrivateRoute({ children, requireFullAccount }) {
   const { user } = useAuth();
-  return user ? children : <Navigate to="/login" />;
+  if (!user) return <Navigate to="/" />;
+  // Guests (no real account) can join video rooms but not the full chat app
+  if (requireFullAccount && user.isGuest) return <Navigate to="/" />;
+  return children;
 }
 
 export default function App() {
   return (
     <SocketProvider>
       <Routes>
+        <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route
-          path="/"
+          path="/chat"
           element={
-            <PrivateRoute>
+            <PrivateRoute requireFullAccount>
               <Chat />
             </PrivateRoute>
           }
