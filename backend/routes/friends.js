@@ -19,6 +19,19 @@ router.post("/request/:userId", protect, async (req, res) => {
     return res.status(400).json({ message: "Already friends" });
   }
 
+  // If they already sent us a request, accept it instead of creating a
+  // duplicate request going the other direction — without this, two
+  // people who both hit "Add" on each other around the same time would
+  // end up with two separate pending requests that never resolve into an
+  // actual friendship.
+  const reverseRequest = await FriendRequest.findOne({ sender: userId, receiver: req.userId });
+  if (reverseRequest) {
+    await User.findByIdAndUpdate(req.userId, { $addToSet: { friends: userId } });
+    await User.findByIdAndUpdate(userId, { $addToSet: { friends: req.userId } });
+    await reverseRequest.deleteOne();
+    return res.status(200).json({ message: "Friend added" });
+  }
+
   try {
     const request = await FriendRequest.create({ sender: req.userId, receiver: userId });
     res.status(201).json(request);

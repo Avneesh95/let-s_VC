@@ -197,6 +197,10 @@ function initSocket(io) {
     // avoids two peers both trying to offer to each other at once (glare).
     socket.on("join-room", ({ roomCode, username }) => {
       const room = rooms.get(roomCode);
+      console.log(
+        `[join-room] user=${socket.userId} name=${username} code="${roomCode}" existingRoomSize=${room?.size || 0} allRoomCodes=${JSON.stringify(Array.from(rooms.keys()))}`
+      );
+
       if (room && room.size >= MAX_ROOM_SIZE) {
         socket.emit("room-error", { message: `Room is full (max ${MAX_ROOM_SIZE} participants)` });
         return;
@@ -268,6 +272,7 @@ function initSocket(io) {
       io.emit("online-users", Array.from(onlineUsers.keys()));
 
       if (socket.currentRoom) {
+        console.log(`[disconnect] user=${socket.userId} leaving room=${socket.currentRoom}`);
         leaveRoom(socket.currentRoom, socket.userId);
         socket.to(socket.currentRoom).emit("user-left-room", { userId: socket.userId });
       }
@@ -276,3 +281,16 @@ function initSocket(io) {
 }
 
 module.exports = initSocket;
+
+// Exposed for a debug route in server.js — lets us inspect live room state
+// via a simple browser visit, without needing access to Render's log viewer.
+initSocket.getRoomsSnapshot = function () {
+  const snapshot = {};
+  rooms.forEach((participants, code) => {
+    snapshot[code] = Array.from(participants.entries()).map(([userId, info]) => ({
+      userId,
+      username: info.username,
+    }));
+  });
+  return snapshot;
+};

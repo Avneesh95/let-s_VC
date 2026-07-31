@@ -11,8 +11,11 @@ every feature maps to one clear technical concept, nothing extra to justify.
 - Online/offline presence
 - Typing indicator
 - Image sharing (upload to Cloudinary, sent as a message)
-- 1-on-1 video calling (WebRTC, signaled over the existing Socket.IO connection)
+- 1-on-1 video calling (WebRTC, signaled over the existing Socket.IO connection) — happens
+  on its own dedicated `/call` route rather than as an overlay on the chat screen
 - Front/back camera switching mid-call (mobile)
+- Guests can join a room directly from a shared link — no detour through a login page,
+  just a quick name prompt right on the room itself
 - Friend system: send/accept/reject friend requests — only friends can message or call each other
 - Responsive layout (Tailwind CSS)
 - Group video calls (up to 6 people) via shareable room codes — no friendship required to join
@@ -76,8 +79,11 @@ backend/
   socket/       Socket.IO connection + event handlers
   server.js     Express + HTTP server + Socket.IO bootstrap
 frontend/
-  src/context/  AuthContext (login state), SocketContext (shared socket connection)
-  src/pages/    Login, Register, Chat
+  src/context/  AuthContext (login state), SocketContext (shared socket connection),
+                CallContext (1-1 call state — lifted out of Chat.jsx so it survives
+                navigating to the dedicated /call route and back)
+  src/pages/    Home (public landing + guest room join), Login, Register, Chat,
+                CallPage (dedicated 1-1 call screen), GroupCall (video room)
   src/components/  Sidebar, ChatWindow, MessageBubble, MessageInput
 ```
 
@@ -113,6 +119,15 @@ npm run dev
    Render and Vercel both give you this by default, so no extra setup needed there.
 
 ## Talking points for interviews
+- **Why does the 1-1 call live in a React Context instead of the Chat component?**
+  Originally it was local state in `Chat.jsx`, rendered as a full-screen overlay on top
+  of the chat UI. Moving it to its own `/call` route (matching how the group call
+  already worked) meant the call state — the peer connection, the media streams, ICE
+  candidates — had to survive a route change, which local component state can't do
+  (it's destroyed when the component unmounts). Lifting it into `CallContext` alongside
+  the existing `AuthContext`/`SocketContext` pattern solved that: the call keeps running
+  regardless of which page is currently rendered, and `Chat.jsx`, `CallPage.jsx`, and
+  even the sidebar's incoming-call handling all just read from the same shared state.
 - **Why Socket.IO over raw WebSocket?** Auto-reconnection, fallback transports, and
   room/broadcast helpers — you'd have to hand-roll all of that with raw `ws`.
 - **Why store messages before emitting?** So a message isn't lost if the receiver is

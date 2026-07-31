@@ -60,6 +60,13 @@ app.use("/api/friends", friendRoutes);
 
 app.get("/", (req, res) => res.send("Chat API is running"));
 
+// Temporary debug route — shows live in-memory room state as JSON.
+// Handy for diagnosing "two people can't find each other in the same
+// room" issues without needing access to a hosting platform's log viewer.
+// Remove this before actually shipping the app publicly, since it leaks
+// room membership to anyone who visits the URL.
+app.get("/api/debug/rooms", (req, res) => res.json(initSocket.getRoomsSnapshot()));
+
 initSocket(io);
 
 const PORT = process.env.PORT || 5000;

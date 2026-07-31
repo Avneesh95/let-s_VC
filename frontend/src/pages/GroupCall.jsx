@@ -57,10 +57,40 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
 }
 
 export default function GroupCall() {
-  const { roomCode } = useParams();
+  const { roomCode: rawRoomCode } = useParams();
+  // Normalize casing here too — the join/create forms already uppercase
+  // the code, but someone pasting or typing the URL directly (bypassing
+  // those forms) could land here with different casing, which would
+  // silently put them in a *different* room than intended.
+  const roomCode = rawRoomCode.toUpperCase();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, guestLogin } = useAuth();
   const { socket } = useSocket();
+
+  // If someone lands here without being logged in at all (e.g. opened a
+  // shared room link cold), let them join with just a name right here
+  // instead of bouncing them to the generic home page and losing the
+  // room code they were trying to join.
+  const [guestName, setGuestName] = useState("");
+  const [guestJoining, setGuestJoining] = useState(false);
+  const [guestError, setGuestError] = useState("");
+
+  const handleGuestJoin = async (e) => {
+    e.preventDefault();
+    if (!guestName.trim()) {
+      setGuestError("Enter your name");
+      return;
+    }
+    setGuestError("");
+    setGuestJoining(true);
+    try {
+      await guestLogin(guestName.trim());
+    } catch (err) {
+      setGuestError("Something went wrong — try again");
+    } finally {
+      setGuestJoining(false);
+    }
+  };
 
   const [localStream, setLocalStream] = useState(null);
   // userId -> { username, stream }
@@ -122,6 +152,7 @@ export default function GroupCall() {
 
   // Get camera/mic, then announce ourselves to the room
   useEffect(() => {
+    if (!user || !socket) return; // wait for guest login (or real login) to finish
     let cancelled = false;
 
     (async () => {
@@ -146,7 +177,7 @@ export default function GroupCall() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode]);
+  }, [roomCode, user, socket]);
 
   // Room signaling
   useEffect(() => {
@@ -311,13 +342,52 @@ export default function GroupCall() {
     }
   };
 
-  const copyInviteLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    alert("Room link copied!");
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("Room link copied!");
+    } catch (err) {
+      // Clipboard API can silently fail (permissions, insecure context,
+      // unsupported browser) — the old code didn't check this at all and
+      // always claimed success. Fall back to a manual-copy prompt instead.
+      console.error("Clipboard copy failed:", err);
+      window.prompt("Copy this link:", window.location.href);
+    }
   };
 
   const otherParticipants = Object.entries(participants); // [userId, {username, stream}][]
   const participantCount = otherParticipants.length + 1; // +1 for self
+
+  if (!user) {
+    return (
+      <div className="h-dvh flex items-center justify-center bg-neutral-900 text-white p-4">
+        <form
+          onSubmit={handleGuestJoin}
+          className="bg-neutral-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-3"
+        >
+          <h1 className="text-lg font-bold">Join Room {roomCode}</h1>
+          <p className="text-sm text-gray-400">Enter your name to join this video call.</p>
+          <input
+            type="text"
+            placeholder="Your name"
+            value={guestName}
+            onChange={(e) => setGuestName(e.target.value)}
+            maxLength={30}
+            autoFocus
+            className="rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none"
+          />
+          {guestError && <p className="text-xs bg-red-600/60 rounded px-2 py-1.5">{guestError}</p>}
+          <button
+            type="submit"
+            disabled={guestJoining}
+            className="bg-brand hover:bg-brand-dark font-semibold rounded-lg py-2 disabled:opacity-60"
+          >
+            {guestJoining ? "Joining…" : "Join"}
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   if (error) {
     return (
