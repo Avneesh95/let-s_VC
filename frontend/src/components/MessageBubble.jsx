@@ -16,7 +16,7 @@ export default function MessageBubble({ message, isOwn }) {
         ) : (
           <p className="text-sm break-words">{message.text}</p>
         )}
-        <span className="block text-[10px] text-gray-400 text-right mt-0.5">{time}</span>
+        <span className="block text-[10px] text-ink/30 text-right mt-0.5">{time}</span>
       </div>
     </div>
   );

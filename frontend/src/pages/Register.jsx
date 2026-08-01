@@ -22,51 +22,64 @@ export default function Register() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gray-100">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-10 rounded-xl shadow-md w-80 max-w-[90vw] flex flex-col gap-3"
-      >
-        <h1 className="text-xl font-semibold mb-2">Create account</h1>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        <input
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={6}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-        />
-        <button
-          type="submit"
-          className="bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2 mt-1 transition-colors"
+    <div className="h-dvh flex items-center justify-center bg-paper px-4">
+      <div className="w-full max-w-sm flex flex-col gap-6">
+        <div className="text-center">
+          <span className="font-display font-semibold text-2xl text-ink tracking-tight">
+            chat<span className="text-brand">/</span>app
+          </span>
+        </div>
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white p-8 rounded-2xl shadow-sm border border-black/5 flex flex-col gap-3"
         >
-          Sign up
-        </button>
-        <p className="text-sm text-center text-gray-500">
-          Already have an account?{" "}
-          <Link to="/login" className="text-brand hover:underline">
-            Log in
+          <h1 className="font-display text-xl font-semibold text-ink mb-1">Create account</h1>
+          {error && <p className="text-danger text-sm">{error}</p>}
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+            className="border border-black/10 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-shadow"
+          />
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="border border-black/10 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-shadow"
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={6}
+            className="border border-black/10 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-shadow"
+          />
+          <button
+            type="submit"
+            className="bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2.5 mt-1 transition-colors"
+          >
+            Sign up
+          </button>
+          <p className="text-sm text-center text-ink/50">
+            Already have an account?{" "}
+            <Link to="/login" className="text-brand hover:underline font-medium">
+              Log in
+            </Link>
+          </p>
+        </form>
+        <p className="text-center text-xs text-ink/40">
+          Just here for a video call?{" "}
+          <Link to="/" className="text-brand hover:underline">
+            Join a room instead
           </Link>
         </p>
-      </form>
+      </div>
     </div>
   );
 }

@@ -22,7 +22,7 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
       className={
         fullSize
           ? "relative w-full h-full bg-black overflow-hidden flex items-center justify-center"
-          : "relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center border-2 border-white/80"
+          : "relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center ring-1 ring-white/10"
       }
     >
       {stream ? (
@@ -42,14 +42,14 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
           }`}
         />
       ) : (
-        <span className="text-gray-400 text-sm">Connecting…</span>
+        <span className="text-white/40 text-sm">Connecting…</span>
       )}
       {cameraOff && (
-        <div className="absolute inset-0 bg-neutral-800 flex items-center justify-center text-3xl">
+        <div className="absolute inset-0 bg-ink flex items-center justify-center text-3xl">
           📷🚫
         </div>
       )}
-      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
+      <span className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-0.5 rounded-md">
         {label}
       </span>
     </div>
@@ -360,13 +360,14 @@ export default function GroupCall() {
 
   if (!user) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-neutral-900 text-white p-4">
+      <div className="h-dvh flex items-center justify-center bg-ink text-white p-4">
         <form
           onSubmit={handleGuestJoin}
-          className="bg-neutral-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-3"
+          className="bg-white/5 border border-white/10 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-3"
         >
-          <h1 className="text-lg font-bold">Join Room {roomCode}</h1>
-          <p className="text-sm text-gray-400">Enter your name to join this video call.</p>
+          <p className="text-xs text-white/40 uppercase tracking-wide">Room</p>
+          <h1 className="font-display text-2xl font-semibold tracking-widest -mt-2">{roomCode}</h1>
+          <p className="text-sm text-white/50">Enter your name to join this video call.</p>
           <input
             type="text"
             placeholder="Your name"
@@ -374,13 +375,13 @@ export default function GroupCall() {
             onChange={(e) => setGuestName(e.target.value)}
             maxLength={30}
             autoFocus
-            className="rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none"
+            className="rounded-lg px-3 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-light mt-1"
           />
-          {guestError && <p className="text-xs bg-red-600/60 rounded px-2 py-1.5">{guestError}</p>}
+          {guestError && <p className="text-xs bg-danger/60 rounded px-2 py-1.5">{guestError}</p>}
           <button
             type="submit"
             disabled={guestJoining}
-            className="bg-brand hover:bg-brand-dark font-semibold rounded-lg py-2 disabled:opacity-60"
+            className="bg-brand hover:bg-brand-dark transition-colors font-semibold rounded-lg py-2.5 disabled:opacity-60"
           >
             {guestJoining ? "Joining…" : "Join"}
           </button>
@@ -391,9 +392,12 @@ export default function GroupCall() {
 
   if (error) {
     return (
-      <div className="h-dvh flex flex-col items-center justify-center bg-neutral-900 text-white gap-4 p-6 text-center">
-        <p className="text-red-300">{error}</p>
-        <button onClick={leaveRoom} className="bg-neutral-700 hover:bg-neutral-600 rounded px-4 py-2">
+      <div className="h-dvh flex flex-col items-center justify-center bg-ink text-white gap-4 p-6 text-center">
+        <p className="text-danger">{error}</p>
+        <button
+          onClick={leaveRoom}
+          className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-4 py-2"
+        >
           Back
         </button>
       </div>
@@ -402,39 +406,54 @@ export default function GroupCall() {
 
   if (!localStream) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-neutral-900 text-white">
+      <div className="h-dvh flex items-center justify-center bg-ink text-white/60">
         Getting camera ready…
       </div>
     );
   }
 
-  // Grid columns scale with how many people are actually in the room —
-  // 3-4 people fit comfortably 2-per-row, 5-6 fit better 3-per-row.
-  const gridColsClass = participantCount <= 4 ? "grid-cols-2" : "grid-cols-3";
+  // Self tile, used consistently across the 4/5/6-person grid branches
+  const selfTile = (
+    <VideoTile
+      stream={localStream}
+      label={`${user.username} (You)`}
+      muted
+      cameraOff={!isCameraOn}
+      mirrored={facingMode === "user"}
+    />
+  );
 
   return (
-    <div className="h-dvh md:h-screen bg-neutral-900 text-white flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 bg-neutral-800">
-        <div>
-          <span className="font-semibold">Room: {roomCode}</span>
-          <span className="text-sm text-gray-400 ml-3">
+    <div className="h-dvh md:h-screen bg-ink text-white flex flex-col">
+      <div className="flex items-center justify-between gap-2 px-3 md:px-4 py-2.5 md:py-3 bg-black/30 border-b border-white/5">
+        <div className="flex items-baseline gap-2 md:gap-3 min-w-0">
+          <span className="hidden sm:inline text-xs text-white/40 uppercase tracking-wide">
+            Room
+          </span>
+          <span className="font-display font-semibold tracking-widest truncate">{roomCode}</span>
+          <span className="text-xs md:text-sm text-white/40 shrink-0">
             {participantCount}/{MAX_PARTICIPANTS}
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 md:gap-2 shrink-0">
           <button
             onClick={copyInviteLink}
-            className="text-sm bg-neutral-700 hover:bg-neutral-600 rounded px-3 py-1.5"
+            title="Copy room link"
+            className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-2.5 md:px-3 py-1.5"
           >
-            Copy Link
+            <span className="sm:hidden">🔗</span>
+            <span className="hidden sm:inline">Copy Link</span>
           </button>
-          <button onClick={leaveRoom} className="text-sm bg-red-600 hover:bg-red-700 rounded px-3 py-1.5">
+          <button
+            onClick={leaveRoom}
+            className="text-xs md:text-sm bg-danger hover:opacity-90 transition-opacity rounded-lg px-2.5 md:px-3 py-1.5"
+          >
             Leave
           </button>
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative">
           {participantCount === 1 && (
             // Alone in the room — show self full-screen with a clear invite prompt,
@@ -448,10 +467,12 @@ export default function GroupCall() {
                 cameraOff={!isCameraOn}
                 mirrored={facingMode === "user"}
               />
-              <div className="absolute inset-x-0 top-6 flex justify-center">
-                <div className="bg-black/70 rounded-xl px-5 py-3 text-center">
-                  <p className="text-sm text-gray-300">Waiting for others to join…</p>
-                  <p className="text-lg font-bold tracking-widest mt-1">{roomCode}</p>
+              <div className="absolute inset-x-0 top-6 md:top-8 flex justify-center px-4">
+                <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
+                  <p className="text-sm text-white/60">Waiting for others to join…</p>
+                  <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
+                    {roomCode}
+                  </p>
                 </div>
               </div>
             </>
@@ -478,64 +499,79 @@ export default function GroupCall() {
             </>
           )}
 
-          {participantCount >= 3 && (
-            // 3+ people — everyone (including self) as equal tiles in a grid.
-            // For exactly 3, the 3rd tile spans both columns so it doesn't
-            // sit oddly half-width alone on its own row (matches the
-            // WhatsApp/Zoom pattern of "2 up top, 1 full-width below").
-            <div
-              className={`h-full overflow-y-auto p-3 grid ${gridColsClass} gap-3 auto-rows-fr place-content-center`}
-            >
-              <VideoTile
-                stream={localStream}
-                label={`${user.username} (You)`}
-                muted
-                cameraOff={!isCameraOn}
-                mirrored={facingMode === "user"}
-              />
-              {otherParticipants.map(([userId, p], i) => (
-                <div
-                  key={userId}
-                  className={
-                    participantCount === 3 && i === otherParticipants.length - 1
-                      ? "col-span-2"
-                      : ""
-                  }
-                >
-                  <VideoTile stream={p.stream} label={p.username} />
+          {participantCount === 3 && (
+            // Dedicated layout instead of a generic grid: 2 tiles on top,
+            // 1 centered (at half-width, not stretched full-width) below —
+            // stretching the 3rd tile to col-span-2 made it visibly taller
+            // than the tiles above it since aspect-video scales with width.
+            <div className="h-full p-3 flex flex-col gap-3">
+              <div className="flex-1 grid grid-cols-2 gap-3">
+                {selfTile}
+                <VideoTile stream={otherParticipants[0][1].stream} label={otherParticipants[0][1].username} />
+              </div>
+              <div className="flex-1 flex justify-center">
+                <div className="w-full md:w-1/2">
+                  <VideoTile stream={otherParticipants[1][1].stream} label={otherParticipants[1][1].username} />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {participantCount === 4 && (
+            // Exactly 4 — a clean 2x2, no leftover space
+            <div className="h-full p-3 grid grid-cols-2 grid-rows-2 gap-3">
+              {selfTile}
+              {otherParticipants.map(([userId, p]) => (
+                <VideoTile key={userId} stream={p.stream} label={p.username} />
+              ))}
+            </div>
+          )}
+
+          {participantCount >= 5 && (
+            // 5-6 people — 3 per row
+            <div className="h-full overflow-y-auto p-3 grid grid-cols-3 gap-3 auto-rows-fr content-center">
+              {selfTile}
+              {otherParticipants.map(([userId, p]) => (
+                <VideoTile key={userId} stream={p.stream} label={p.username} />
               ))}
             </div>
           )}
         </div>
 
         {chatOpen && (
-          <div className="w-72 max-w-[80vw] bg-neutral-800 flex flex-col border-l border-neutral-700">
-            <div className="px-3 py-2 border-b border-neutral-700 font-semibold text-sm">
+          <div className="absolute inset-0 md:static md:w-72 md:max-w-[80vw] bg-ink md:bg-black/40 backdrop-blur-sm flex flex-col border-l border-white/10 z-10">
+            <div className="px-3 py-2.5 border-b border-white/10 font-display font-semibold text-sm flex items-center justify-between">
               Room Chat
+              <button
+                onClick={() => setChatOpen(false)}
+                className="md:hidden text-white/50 hover:text-white text-lg leading-none"
+                aria-label="Close chat"
+              >
+                ✕
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
               {chatMessages.length === 0 && (
-                <p className="text-xs text-gray-500 text-center mt-4">No messages yet</p>
+                <p className="text-xs text-white/30 text-center mt-4">No messages yet</p>
               )}
               {chatMessages.map((m, i) => (
                 <div key={i} className="text-sm">
-                  <span className="font-semibold text-brand">{m.username}: </span>
-                  <span className="break-words">{m.text}</span>
+                  <span className="font-semibold text-brand-light">{m.username}: </span>
+                  <span className="break-words text-white/90">{m.text}</span>
                 </div>
               ))}
             </div>
-            <form onSubmit={sendChatMessage} className="p-2 border-t border-neutral-700 flex gap-2">
+            <form onSubmit={sendChatMessage} className="p-2 border-t border-white/10 flex gap-2">
               <input
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Message…"
-                className="flex-1 min-w-0 bg-neutral-700 rounded-full px-3 py-1.5 text-sm focus:outline-none"
+                className="flex-1 min-w-0 bg-white/10 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-light"
               />
               <button
                 type="submit"
-                className="bg-brand hover:bg-brand-dark rounded-full px-3 py-1.5 text-sm"
+                className="bg-brand hover:bg-brand-dark transition-colors rounded-full px-3 py-1.5 text-sm"
               >
                 Send
               </button>
@@ -544,12 +580,12 @@ export default function GroupCall() {
         )}
       </div>
 
-      <div className="bg-neutral-900 py-4 flex items-center justify-center gap-3">
+      <div className="bg-black/30 border-t border-white/5 py-3 md:py-4 flex items-center justify-center gap-2 md:gap-3">
         <button
           onClick={toggleMic}
           title={isMicOn ? "Mute mic" : "Unmute mic"}
-          className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${
-            isMicOn ? "bg-neutral-700 hover:bg-neutral-600" : "bg-white text-black"
+          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg transition-colors ${
+            isMicOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-ink"
           }`}
         >
           {isMicOn ? "🎤" : "🔇"}
@@ -557,8 +593,8 @@ export default function GroupCall() {
         <button
           onClick={toggleCamera}
           title={isCameraOn ? "Turn off camera" : "Turn on camera"}
-          className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${
-            isCameraOn ? "bg-neutral-700 hover:bg-neutral-600" : "bg-white text-black"
+          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg transition-colors ${
+            isCameraOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-ink"
           }`}
         >
           {isCameraOn ? "📷" : "🚫"}
@@ -566,15 +602,15 @@ export default function GroupCall() {
         <button
           onClick={switchCamera}
           title="Switch camera"
-          className="w-12 h-12 rounded-full bg-neutral-700 hover:bg-neutral-600 flex items-center justify-center text-lg"
+          className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 transition-colors flex items-center justify-center text-base md:text-lg"
         >
           🔄
         </button>
         <button
           onClick={() => setChatOpen((v) => !v)}
           title="Toggle chat"
-          className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${
-            chatOpen ? "bg-brand" : "bg-neutral-700 hover:bg-neutral-600"
+          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg transition-colors ${
+            chatOpen ? "bg-brand" : "bg-white/10 hover:bg-white/20"
           }`}
         >
           💬
@@ -582,7 +618,7 @@ export default function GroupCall() {
         <button
           onClick={leaveRoom}
           title="Leave call"
-          className="w-14 h-12 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white text-xl"
+          className="w-12 h-10 md:w-14 md:h-12 rounded-full bg-danger hover:opacity-90 transition-opacity flex items-center justify-center text-white text-lg md:text-xl"
         >
           ✕
         </button>

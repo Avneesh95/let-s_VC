@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    font-family: Inter, system-ui, sans-serif;
+  }
+  h1, h2, h3 {
+    font-family: "Space Grotesk", sans-serif;
+  }
+  /* Visible keyboard focus everywhere, not just the browser default (which
+     Tailwind's reset otherwise suppresses on some elements) */
+  :focus-visible {
+    outline: 2px solid #1F6F5C;
+    outline-offset: 2px;
+  }
+}
+
 /* Small custom utilities that are awkward to express as pure Tailwind */
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {

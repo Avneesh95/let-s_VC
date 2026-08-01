@@ -7,8 +7,8 @@ function ControlButton({ onClick, active, activeLabel, inactiveLabel, title }) {
     <button
       onClick={onClick}
       title={title}
-      className={`w-12 h-12 rounded-full flex items-center justify-center text-lg transition-colors ${
-        active ? "bg-neutral-700 hover:bg-neutral-600" : "bg-white/90 hover:bg-white text-black"
+      className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg transition-colors ${
+        active ? "bg-white/10 hover:bg-white/20" : "bg-white/90 hover:bg-white text-ink"
       }`}
     >
       {active ? activeLabel : inactiveLabel}
@@ -67,21 +67,23 @@ export default function CallPage() {
   // "Calling…" / "Incoming call" — small centered dialog, no video yet
   if (callStatus === "calling" || callStatus === "incoming") {
     return (
-      <div className="h-dvh bg-neutral-900 flex items-center justify-center">
-        <div className="bg-neutral-800 text-white rounded-2xl p-6 min-w-[280px] w-[92vw] md:w-auto flex flex-col items-center gap-4">
+      <div className="h-dvh bg-ink flex items-center justify-center">
+        <div className="bg-white/5 border border-white/10 text-white rounded-2xl p-6 min-w-[280px] w-[92vw] md:w-auto flex flex-col items-center gap-4">
           {callStatus === "incoming" ? (
             <>
-              <p className="text-lg">{otherUserName} is calling…</p>
+              <p className="text-lg">
+                <span className="font-display font-semibold">{otherUserName}</span> is calling…
+              </p>
               <div className="flex gap-3">
                 <button
                   onClick={acceptCall}
-                  className="bg-green-600 hover:bg-green-700 text-white font-semibold rounded-full px-6 py-2"
+                  className="bg-brand hover:bg-brand-dark transition-colors text-white font-semibold rounded-full px-6 py-2"
                 >
                   Accept
                 </button>
                 <button
                   onClick={declineCall}
-                  className="bg-red-600 hover:bg-red-700 text-white font-semibold rounded-full px-6 py-2"
+                  className="bg-danger hover:opacity-90 transition-opacity text-white font-semibold rounded-full px-6 py-2"
                 >
                   Decline
                 </button>
@@ -89,10 +91,12 @@ export default function CallPage() {
             </>
           ) : (
             <>
-              <p className="text-lg">Calling {otherUserName}…</p>
+              <p className="text-lg">
+                Calling <span className="font-display font-semibold">{otherUserName}</span>…
+              </p>
               <button
                 onClick={endCall}
-                className="bg-red-600 hover:bg-red-700 text-white font-semibold rounded-full px-6 py-2"
+                className="bg-danger hover:opacity-90 transition-opacity text-white font-semibold rounded-full px-6 py-2"
               >
                 Cancel
               </button>
@@ -115,7 +119,7 @@ export default function CallPage() {
           className="w-full h-full object-contain bg-black"
         />
         {!remoteStream && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+          <div className="absolute inset-0 flex items-center justify-center text-white/40 text-sm">
             Connecting video…
           </div>
         )}
@@ -139,7 +143,7 @@ export default function CallPage() {
               className={`w-full h-full object-cover ${facingMode === "user" ? "-scale-x-100" : ""}`}
             />
             {!isCameraOn && (
-              <div className="absolute inset-0 flex items-center justify-center bg-neutral-800 text-2xl">
+              <div className="absolute inset-0 flex items-center justify-center bg-ink text-2xl">
                 📷🚫
               </div>
             )}
@@ -150,7 +154,7 @@ export default function CallPage() {
         </div>
       </div>
 
-      <div className="bg-neutral-900 py-5 flex items-center justify-center gap-3">
+      <div className="bg-ink border-t border-white/5 py-3 md:py-5 flex items-center justify-center gap-2 md:gap-3">
         <ControlButton
           onClick={toggleMic}
           active={isMicOn}
@@ -169,7 +173,7 @@ export default function CallPage() {
         <button
           onClick={endCall}
           title="End call"
-          className="w-14 h-12 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center text-white text-xl"
+          className="w-12 h-10 md:w-14 md:h-12 rounded-full bg-danger hover:opacity-90 transition-opacity flex items-center justify-center text-white text-lg md:text-xl"
         >
           ✕
         </button>

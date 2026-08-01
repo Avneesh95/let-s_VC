@@ -46,7 +46,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-white px-3 py-2 border-t border-gray-200">
+    <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-white px-3 py-2 border-t border-black/5">
       <input
         type="file"
         accept="image/*"
@@ -68,7 +68,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
         placeholder="Type a message..."
         value={text}
         onChange={handleChange}
-        className="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+        className="flex-1 border border-black/10 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand transition-shadow"
       />
       <button
         type="submit"

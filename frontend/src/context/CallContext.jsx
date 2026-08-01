@@ -6,6 +6,11 @@ import ICE_SERVERS from "../utils/iceServers";
 
 const CallContext = createContext(null);
 
+// Every log line is prefixed so it's trivially greppable in the console —
+// if a call fails, the sequence of [call] lines shows exactly which step
+// it got to and which one it never reached.
+const log = (...args) => console.log("[call]", ...args);
+
 export function CallProvider({ children }) {
   const { user } = useAuth();
   const { socket } = useSocket();
@@ -14,7 +19,7 @@ export function CallProvider({ children }) {
 
   const [callStatus, setCallStatus] = useState("idle"); // idle | calling | incoming | in-call
   const [incomingCall, setIncomingCall] = useState(null); // { from, offer, callerName }
-  const [otherUserName, setOtherUserName] = useState(""); // who we're calling / being called by
+  const [otherUserName, setOtherUserName] = useState("");
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [facingMode, setFacingMode] = useState("user");
@@ -33,36 +38,23 @@ export function CallProvider({ children }) {
     callStatusRef.current = callStatus;
   }, [callStatus]);
 
-  // Navigate to the dedicated call page the moment a call starts (either
-  // direction), and back to chat once it's fully over — this is what makes
-  // calling feel like its own page instead of an overlay on the chat view.
-  // The prevStatus check matters: without it, this effect would also fire
-  // on the very first render of ANY route (since callStatus starts at
-  // "idle"), force-navigating away from login/register/home immediately.
-  const prevCallStatusRef = useRef("idle");
-  useEffect(() => {
-    const prevStatus = prevCallStatusRef.current;
-    if (callStatus !== "idle") {
-      navigate("/call");
-    } else if (prevStatus !== "idle") {
-      navigate("/chat");
-    }
-    prevCallStatusRef.current = callStatus;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callStatus]);
-
-  // If the route ever drifts away from /call while a call is still active
-  // (most commonly: pressing the browser back button), pull it back —
-  // otherwise the call keeps running invisibly with no UI left to see or
-  // end it, since the call view only exists on the /call route.
+  // Single source of truth for where /call navigation should point, given
+  // the current call status and route. Previously this logic was split
+  // across two separate effects that could both fire in the same render
+  // pass and issue duplicate/racing navigate() calls — consolidated here.
   useEffect(() => {
     if (callStatus !== "idle" && location.pathname !== "/call") {
+      log("navigating to /call, status:", callStatus);
       navigate("/call");
+    } else if (callStatus === "idle" && location.pathname === "/call") {
+      log("call ended, navigating back to /chat");
+      navigate("/chat");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, callStatus]);
+  }, [callStatus, location.pathname]);
 
   const resetCallState = useCallback(() => {
+    log("resetting call state");
     peerConnection.current?.close();
     peerConnection.current = null;
     pendingCandidates.current = [];
@@ -82,7 +74,9 @@ export function CallProvider({ children }) {
     if (!socket) return;
 
     const handleIncomingCall = ({ from, offer, callerName }) => {
+      log("incoming-call from", callerName);
       if (callStatusRef.current !== "idle") {
+        log("already busy, sending decline-call");
         socket.emit("decline-call", { to: from });
         return;
       }
@@ -93,9 +87,14 @@ export function CallProvider({ children }) {
     };
 
     const handleCallAnswered = async ({ answer }) => {
+      log("call-answered received");
       const pc = peerConnection.current;
-      if (!pc) return;
+      if (!pc) {
+        log("ERROR: call-answered arrived but no peer connection exists");
+        return;
+      }
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      log("remote description (answer) set");
       await flushPendingCandidates(pc);
       setCallStatus("in-call");
     };
@@ -106,16 +105,27 @@ export function CallProvider({ children }) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
-          console.error("Failed to add ICE candidate", err);
+          log("ERROR adding ICE candidate:", err.message);
         }
       } else {
         pendingCandidates.current.push(candidate);
+        log(
+          "queued ICE candidate (peer connection not ready yet), queue size:",
+          pendingCandidates.current.length
+        );
       }
     };
 
-    const handleCallEnded = () => resetCallState();
-    const handleCallDeclined = () => resetCallState();
+    const handleCallEnded = () => {
+      log("call-ended received");
+      resetCallState();
+    };
+    const handleCallDeclined = () => {
+      log("call-declined received");
+      resetCallState();
+    };
     const handleCallError = ({ message }) => {
+      log("call-error received:", message);
       alert(message);
       resetCallState();
     };
@@ -148,11 +158,14 @@ export function CallProvider({ children }) {
     };
 
     pc.ontrack = (event) => {
+      log("received remote track:", event.track.kind);
       setRemoteStream(event.streams[0]);
     };
 
     pc.oniceconnectionstatechange = () => {
+      log("ICE connection state:", pc.iceConnectionState);
       if (pc.iceConnectionState === "failed") {
+        log("ICE connection failed — ending call");
         if (otherUserId.current) socket.emit("end-call", { to: otherUserId.current });
         alert("Call connection failed. Please try again.");
         resetCallState();
@@ -163,27 +176,29 @@ export function CallProvider({ children }) {
   };
 
   const flushPendingCandidates = async (pc) => {
+    if (pendingCandidates.current.length > 0) {
+      log("flushing", pendingCandidates.current.length, "queued ICE candidate(s)");
+    }
     while (pendingCandidates.current.length > 0) {
       const candidate = pendingCandidates.current.shift();
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
-        console.error("Failed to add queued ICE candidate", err);
+        log("ERROR adding queued ICE candidate:", err.message);
       }
     }
   };
 
-  const startCall = async (targetUser) => {
-    if (!targetUser) return;
-    if (callStatus !== "idle") return;
-    otherUserId.current = targetUser._id;
-    setOtherUserName(targetUser.username);
-
-    let stream;
+  const getMediaOrAlert = async () => {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      log(
+        "getUserMedia succeeded — tracks:",
+        stream.getTracks().map((t) => t.kind).join(", ")
+      );
+      return stream;
     } catch (err) {
-      console.error("getUserMedia failed:", err.name, err.message);
+      log("ERROR getUserMedia failed:", err.name, err.message);
       alert(
         err.name === "NotReadableError"
           ? "Camera is already in use by another tab/app. Close other tabs using the camera and try again."
@@ -191,6 +206,27 @@ export function CallProvider({ children }) {
           ? "Camera/mic permission was denied. Check your browser's site permissions."
           : "Couldn't access camera/mic. Note: on a phone, this only works over HTTPS (or localhost) — plain http://<LAN-IP> will silently block camera access."
       );
+      return null;
+    }
+  };
+
+  const startCall = async (targetUser) => {
+    if (!targetUser) return;
+    if (callStatus !== "idle") {
+      log("startCall ignored — already in a call (status:", callStatus + ")");
+      return;
+    }
+    if (!socket) {
+      alert("Not connected to the server yet — please wait a moment and try again.");
+      return;
+    }
+    log("starting call to", targetUser.username);
+
+    otherUserId.current = targetUser._id;
+    setOtherUserName(targetUser.username);
+
+    const stream = await getMediaOrAlert();
+    if (!stream) {
       otherUserId.current = null;
       return;
     }
@@ -205,26 +241,23 @@ export function CallProvider({ children }) {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    log("local description (offer) set, sending call-user");
 
     socket.emit("call-user", { to: targetUser._id, offer, callerName: user.username });
     setCallStatus("calling");
   };
 
   const acceptCall = async () => {
+    if (!incomingCall) return;
+    if (!socket) {
+      alert("Not connected to the server yet — please wait a moment and try again.");
+      return;
+    }
     const { from, offer } = incomingCall;
+    log("accepting call from", from);
 
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch (err) {
-      console.error("getUserMedia failed:", err.name, err.message);
-      alert(
-        err.name === "NotReadableError"
-          ? "Camera is already in use by another tab/app. Close other tabs using the camera and try again."
-          : err.name === "NotAllowedError"
-          ? "Camera/mic permission was denied. Check your browser's site permissions."
-          : "Couldn't access camera/mic. Note: on a phone, this only works over HTTPS (or localhost) — plain http://<LAN-IP> will silently block camera access."
-      );
+    const stream = await getMediaOrAlert();
+    if (!stream) {
       socket.emit("decline-call", { to: from });
       resetCallState();
       return;
@@ -239,22 +272,26 @@ export function CallProvider({ children }) {
     peerConnection.current = pc;
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    log("remote description (offer) set");
     await flushPendingCandidates(pc);
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+    log("local description (answer) set, sending answer-call");
 
     socket.emit("answer-call", { to: from, answer });
     setCallStatus("in-call");
   };
 
   const declineCall = () => {
-    socket.emit("decline-call", { to: incomingCall.from });
+    if (!incomingCall) return;
+    socket?.emit("decline-call", { to: incomingCall.from });
     resetCallState();
   };
 
   const endCall = () => {
     if (otherUserId.current) {
-      socket.emit("end-call", { to: otherUserId.current });
+      socket?.emit("end-call", { to: otherUserId.current });
     }
     resetCallState();
   };
@@ -282,7 +319,7 @@ export function CallProvider({ children }) {
       setLocalStream(combinedStream);
       setFacingMode(newFacingMode);
     } catch (err) {
-      console.error("Could not switch camera:", err);
+      log("ERROR switching camera:", err.message);
       alert("Couldn't switch camera — this device may only have one camera available.");
     }
   };

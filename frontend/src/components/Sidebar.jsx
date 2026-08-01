@@ -4,11 +4,11 @@ import generateRoomCode from "../utils/generateRoomCode";
 
 function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
   if (user.friendStatus === "friends") {
-    return <span className="text-xs text-green-600 font-medium whitespace-nowrap">✓ Friend</span>;
+    return <span className="text-xs text-brand font-medium whitespace-nowrap">✓ Friend</span>;
   }
 
   if (user.friendStatus === "request-sent") {
-    return <span className="text-xs text-gray-400 whitespace-nowrap">Requested</span>;
+    return <span className="text-xs text-ink/30 whitespace-nowrap">Requested</span>;
   }
 
   if (user.friendStatus === "request-received") {
@@ -19,7 +19,7 @@ function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
             e.stopPropagation();
             onAcceptRequest(user.requestId);
           }}
-          className="text-xs bg-green-600 hover:bg-green-700 text-white rounded px-2 py-1"
+          className="text-xs bg-brand hover:bg-brand-dark transition-colors text-white rounded px-2 py-1"
           title="Accept"
         >
           ✓
@@ -29,7 +29,7 @@ function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
             e.stopPropagation();
             onRejectRequest(user.requestId);
           }}
-          className="text-xs bg-red-600 hover:bg-red-700 text-white rounded px-2 py-1"
+          className="text-xs bg-danger hover:opacity-90 transition-opacity text-white rounded px-2 py-1"
           title="Decline"
         >
           ✕
@@ -45,7 +45,7 @@ function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
         e.stopPropagation();
         onAddFriend(user._id);
       }}
-      className="text-xs bg-brand hover:bg-brand-dark text-white rounded px-2 py-1 whitespace-nowrap"
+      className="text-xs bg-brand hover:bg-brand-dark transition-colors text-white rounded px-2 py-1 whitespace-nowrap"
     >
       + Add
     </button>
@@ -79,21 +79,33 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="w-full md:w-[300px] bg-white border-r border-gray-200 flex flex-col shrink-0">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 font-semibold">
-        <span>{currentUser.username}</span>
+    <aside className="w-full md:w-[300px] bg-white border-r border-black/5 flex flex-col shrink-0">
+      <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between">
+        <span className="font-display font-semibold text-ink">
+          chat<span className="text-brand">/</span>app
+        </span>
         <button
           onClick={onLogout}
-          className="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-100"
+          className="text-xs border border-black/10 rounded px-2 py-1 hover:bg-paper transition-colors"
         >
           Log out
         </button>
       </div>
 
-      <div className="px-4 py-3 border-b border-gray-200 flex flex-col gap-2">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-black/5">
+        <span
+          className="w-8 h-8 rounded-full text-white text-sm font-semibold flex items-center justify-center shrink-0"
+          style={{ backgroundColor: currentUser.avatarColor || "#1F6F5C" }}
+        >
+          {currentUser.username[0].toUpperCase()}
+        </span>
+        <span className="text-sm font-medium text-ink truncate">{currentUser.username}</span>
+      </div>
+
+      <div className="px-4 py-3 border-b border-black/5 flex flex-col gap-2 bg-paper/60">
         <button
           onClick={startGroupCall}
-          className="text-sm bg-brand hover:bg-brand-dark text-white font-semibold rounded-lg py-2"
+          className="text-sm bg-brand hover:bg-brand-dark transition-colors text-white font-semibold rounded-lg py-2"
         >
           🎥 New Group Call
         </button>
@@ -103,12 +115,12 @@ export default function Sidebar({
             placeholder="Enter room code"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
-            className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand uppercase"
+            className="flex-1 min-w-0 border border-black/10 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 uppercase bg-white"
             maxLength={6}
           />
           <button
             type="submit"
-            className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-100"
+            className="text-sm border border-black/10 rounded-lg px-3 py-1.5 hover:bg-white transition-colors bg-white"
           >
             Join
           </button>
@@ -120,8 +132,8 @@ export default function Sidebar({
           <li
             key={u._id}
             onClick={() => onSelect(u)}
-            className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-100 ${
-              activeUser?._id === u._id ? "bg-gray-100" : ""
+            className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-paper transition-colors ${
+              activeUser?._id === u._id ? "bg-paper" : ""
             }`}
           >
             <span
@@ -131,11 +143,9 @@ export default function Sidebar({
               {u.username[0].toUpperCase()}
             </span>
             <span className="flex flex-col min-w-0 flex-1">
-              <span className="font-medium truncate">{u.username}</span>
+              <span className="font-medium text-ink truncate">{u.username}</span>
               <span
-                className={`text-xs ${
-                  onlineUsers.includes(u._id) ? "text-green-600" : "text-gray-400"
-                }`}
+                className={`text-xs ${onlineUsers.includes(u._id) ? "text-brand" : "text-ink/30"}`}
               >
                 {onlineUsers.includes(u._id) ? "Online" : "Offline"}
               </span>
