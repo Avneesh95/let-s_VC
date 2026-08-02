@@ -244,6 +244,15 @@ export default function GroupCall() {
 
     const handleRoomError = ({ message }) => setError(message);
 
+    // These two only matter if this room was entered via a 1-1 call
+    // invite — if the invited friend is offline, not actually a friend
+    // (stale UI), or explicitly declines, the caller is sitting alone in
+    // an empty room and needs to be told rather than left waiting forever.
+    const handleCallError = ({ message }) => setError(message);
+    const handleInviteResponse = ({ accepted }) => {
+      if (!accepted) setError("Call declined.");
+    };
+
     const handleChatMessage = (msg) => {
       setChatMessages((prev) => [...prev, msg]);
     };
@@ -255,6 +264,8 @@ export default function GroupCall() {
     socket.on("room-ice-candidate", handleIceCandidate);
     socket.on("user-left-room", handleUserLeft);
     socket.on("room-error", handleRoomError);
+    socket.on("call-error", handleCallError);
+    socket.on("call-invite-response", handleInviteResponse);
     socket.on("room-chat-message", handleChatMessage);
 
     return () => {
@@ -265,6 +276,8 @@ export default function GroupCall() {
       socket.off("room-ice-candidate", handleIceCandidate);
       socket.off("user-left-room", handleUserLeft);
       socket.off("room-error", handleRoomError);
+      socket.off("call-error", handleCallError);
+      socket.off("call-invite-response", handleInviteResponse);
       socket.off("room-chat-message", handleChatMessage);
     };
   }, [socket, createPeerConnection]);

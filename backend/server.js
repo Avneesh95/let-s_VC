@@ -13,6 +13,18 @@ const messageRoutes = require("./routes/messages");
 const uploadRoutes = require("./routes/upload");
 const friendRoutes = require("./routes/friends");
 
+// Fail fast on boot if required config is missing, rather than starting
+// successfully and then failing confusingly on the first request that
+// needs the missing value (e.g. every login failing with a cryptic JWT
+// error because JWT_SECRET was never set).
+const REQUIRED_ENV_VARS = ["MONGO_URI", "JWT_SECRET"];
+const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+if (missingEnvVars.length > 0) {
+  console.error(`Missing required environment variable(s): ${missingEnvVars.join(", ")}`);
+  console.error("Check your .env file (see .env.example) or your host's environment settings.");
+  process.exit(1);
+}
+
 const app = express();
 const server = http.createServer(app);
 
@@ -52,6 +64,15 @@ connectDB();
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// A handful of basic security headers without pulling in a dependency
+// (helmet) for a project this size — the ones that matter most here.
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/messages", messageRoutes);
@@ -60,12 +81,19 @@ app.use("/api/friends", friendRoutes);
 
 app.get("/", (req, res) => res.send("Chat API is running"));
 
-// Temporary debug route — shows live in-memory room state as JSON.
-// Handy for diagnosing "two people can't find each other in the same
-// room" issues without needing access to a hosting platform's log viewer.
-// Remove this before actually shipping the app publicly, since it leaks
-// room membership to anyone who visits the URL.
-app.get("/api/debug/rooms", (req, res) => res.json(initSocket.getRoomsSnapshot()));
+// Catch-all for unmatched API routes
+app.use("/api", (req, res) => {
+  res.status(404).json({ message: "Not found" });
+});
+
+// Centralized error handler — any route that calls next(err), or throws
+// inside an async handler wrapped to forward its rejection, lands here
+// instead of the request hanging or Express's default HTML error page
+// leaking a stack trace to the client.
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(err.status || 500).json({ message: err.message || "Server error" });
+});
 
 initSocket(io);
 

@@ -4,8 +4,7 @@ const User = require("../models/User");
 
 // In-memory map of userId -> Set of socketIds.
 // Using a Set (not a single socketId) means a user with multiple tabs/
-// devices connected stays "online" even if one connection drops — this
-// is what was causing the online/offline flickering.
+// devices connected stays "online" even if one connection drops.
 // This is fine for a single server instance / resume project. In production
 // at scale you'd back this with Redis so it works across multiple server
 // instances.
@@ -28,14 +27,19 @@ function getSocketId(userId) {
   return sockets ? sockets.values().next().value : undefined;
 }
 
-// Shared by both messaging and calling — the friends-only rule is the same
-// authorization check either way, just applied at two different entry points.
+// Shared by messaging, calling, and room invites — the friends-only rule
+// is the same authorization check applied at every entry point that needs it.
 async function areFriends(userId, otherUserId) {
   const me = await User.findById(userId).select("friends");
   return !!me?.friends.some((id) => id.toString() === otherUserId);
 }
 
-// --- Group call rooms ---
+// --- Video rooms ---
+// Rooms are the single video-calling primitive in this app — a 1-1 "call"
+// is just a friend-only invite into a private room, and a group call is
+// the same room shared via a code. One mesh WebRTC implementation serves
+// both cases instead of maintaining two separate signaling paths.
+//
 // Rooms are ephemeral and live only in memory — no database model needed,
 // since a room is really just "whoever currently has the link open." A
 // room is created implicitly the moment the first person joins its code,
@@ -108,7 +112,6 @@ function initSocket(io) {
           mediaUrl: mediaUrl || null,
         });
 
-        // Send to receiver if they're online
         const receiverSocketId = getSocketId(receiverId);
         if (receiverSocketId) {
           io.to(receiverSocketId).emit("receive-message", message);
@@ -136,15 +139,11 @@ function initSocket(io) {
       }
     });
 
-    // --- WebRTC call signaling ---
-    // The server never touches audio/video data — it only relays the
-    // handshake messages (offer/answer/ICE candidates) between the two
-    // peers so their browsers can negotiate a direct connection.
-    socket.on("call-user", async ({ to, offer, callerName }) => {
-      // Authorization check happens here, server-side — disabling the call
-      // button in the UI is a nice-to-have, but the actual rule (only
-      // friends can call each other) has to be enforced where it can't be
-      // bypassed by editing client code.
+    // --- Call invite (1-1 "call" = a friend-only invite into a room) ---
+    // No WebRTC signaling lives here at all — this just notifies the friend
+    // and hands both people off to the room-joining flow below, which is
+    // the same code path group calls use.
+    socket.on("call-invite", async ({ to, roomCode, callerName }) => {
       const isFriend = await areFriends(socket.userId, to);
       if (!isFriend) {
         socket.emit("call-error", { message: "You can only call friends" });
@@ -152,55 +151,28 @@ function initSocket(io) {
       }
 
       const targetSocketId = getSocketId(to);
-      if (targetSocketId) {
-        io.to(targetSocketId).emit("incoming-call", {
-          from: socket.userId,
-          offer,
-          callerName,
-        });
+      if (!targetSocketId) {
+        socket.emit("call-error", { message: "That user is offline" });
+        return;
       }
+
+      io.to(targetSocketId).emit("call-invite", { from: socket.userId, roomCode, callerName });
     });
 
-    socket.on("answer-call", ({ to, answer }) => {
+    socket.on("call-invite-response", ({ to, roomCode, accepted }) => {
       const targetSocketId = getSocketId(to);
       if (targetSocketId) {
-        io.to(targetSocketId).emit("call-answered", { answer });
+        io.to(targetSocketId).emit("call-invite-response", { roomCode, accepted });
       }
     });
 
-    socket.on("ice-candidate", ({ to, candidate }) => {
-      const targetSocketId = getSocketId(to);
-      if (targetSocketId) {
-        io.to(targetSocketId).emit("ice-candidate", { candidate });
-      }
-    });
-
-    socket.on("end-call", ({ to }) => {
-      const targetSocketId = getSocketId(to);
-      if (targetSocketId) {
-        io.to(targetSocketId).emit("call-ended");
-      }
-    });
-
-    socket.on("decline-call", ({ to }) => {
-      const targetSocketId = getSocketId(to);
-      if (targetSocketId) {
-        io.to(targetSocketId).emit("call-declined");
-      }
-    });
-
-    // --- Group call rooms ---
-    // Same signaling pattern as the 1-1 call above (server only relays
-    // offer/answer/ICE, never touches media), but now for N participants.
-    // The joining user always initiates the connection to everyone already
-    // in the room — that keeps the "who offers to whom" logic simple and
-    // avoids two peers both trying to offer to each other at once (glare).
+    // --- Video rooms ---
+    // Server only relays offer/answer/ICE — it never touches the actual
+    // media. The joining user always initiates the connection to everyone
+    // already in the room; that keeps "who offers to whom" simple and
+    // avoids two peers both offering to each other at once (glare).
     socket.on("join-room", ({ roomCode, username }) => {
       const room = rooms.get(roomCode);
-      console.log(
-        `[join-room] user=${socket.userId} name=${username} code="${roomCode}" existingRoomSize=${room?.size || 0} allRoomCodes=${JSON.stringify(Array.from(rooms.keys()))}`
-      );
-
       if (room && room.size >= MAX_ROOM_SIZE) {
         socket.emit("room-error", { message: `Room is full (max ${MAX_ROOM_SIZE} participants)` });
         return;
@@ -251,9 +223,9 @@ function initSocket(io) {
     // Lightweight in-room text chat. No persistence (matches how rooms
     // themselves work — ephemeral, in-memory only) and no friendship check
     // needed, since being in the room at all is the only authorization this
-    // needs (same principle as the video signaling above). Using io.to
-    // (not socket.to) so the sender also gets their own message echoed
-    // back, keeping the client's message list a single source of truth.
+    // needs. Using io.to (not socket.to) so the sender also gets their own
+    // message echoed back, keeping the client's message list a single
+    // source of truth.
     socket.on("room-chat-message", ({ roomCode, text }) => {
       if (!text?.trim() || socket.currentRoom !== roomCode) return;
       const room = rooms.get(roomCode);
@@ -272,7 +244,6 @@ function initSocket(io) {
       io.emit("online-users", Array.from(onlineUsers.keys()));
 
       if (socket.currentRoom) {
-        console.log(`[disconnect] user=${socket.userId} leaving room=${socket.currentRoom}`);
         leaveRoom(socket.currentRoom, socket.userId);
         socket.to(socket.currentRoom).emit("user-left-room", { userId: socket.userId });
       }
@@ -281,16 +252,3 @@ function initSocket(io) {
 }
 
 module.exports = initSocket;
-
-// Exposed for a debug route in server.js — lets us inspect live room state
-// via a simple browser visit, without needing access to Render's log viewer.
-initSocket.getRoomsSnapshot = function () {
-  const snapshot = {};
-  rooms.forEach((participants, code) => {
-    snapshot[code] = Array.from(participants.entries()).map(([userId, info]) => ({
-      userId,
-      username: info.username,
-    }));
-  });
-  return snapshot;
-};

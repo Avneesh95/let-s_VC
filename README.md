@@ -1,97 +1,113 @@
-# ChatApp — MERN + Socket.IO Real-Time Chat
+# ChatApp — MERN + Socket.IO + WebRTC
 
-A minimal WhatsApp-style 1-on-1 chat app. Built to be **easy to explain in an interview**:
-every feature maps to one clear technical concept, nothing extra to justify.
+A real-time chat and video calling app. Built to be **explainable in an interview**: every
+feature maps to one clear technical decision, and the architecture was deliberately
+simplified partway through development when a better approach became obvious — that
+decision (and why) is the most interesting thing to talk about in this project.
 
-## Feature set (intentionally scoped)
-- JWT authentication (register/login)
-- Contact list (all other registered users)
-- 1-on-1 real-time messaging via Socket.IO
-- Message persistence in MongoDB (chat history survives refresh/logout)
-- Online/offline presence
-- Typing indicator
-- Image sharing (upload to Cloudinary, sent as a message)
-- 1-on-1 video calling (WebRTC, signaled over the existing Socket.IO connection) — happens
-  on its own dedicated `/call` route rather than as an overlay on the chat screen
-- Front/back camera switching mid-call (mobile)
-- Guests can join a room directly from a shared link — no detour through a login page,
-  just a quick name prompt right on the room itself
-- Friend system: send/accept/reject friend requests — only friends can message or call each other
-- Responsive layout (Tailwind CSS)
-- Group video calls (up to 6 people) via shareable room codes — no friendship required to join
-  a room, since the room code itself is the invite (like a Zoom/Meet link)
-- Guest access: anyone can join a video room with just a name — no account needed. The full
-  chat/friends app still requires login/register; guests only ever see the video room.
-- Adaptive call layout: full-screen + small self-preview for 1-on-1-sized rooms (1-2 people),
-  automatically switching to a grid once 3+ people join — same pattern WhatsApp/Zoom use
-- Camera on/off and mic on/off toggles during any call (1-1 or group), plus front/back camera
-  switching — all live, no call interruption
-- Front camera preview is mirrored (like WhatsApp/every video app) — the video actually sent
-  to others is not flipped, only your own local preview
-- Lightweight in-room text chat during group video calls (ephemeral, not saved — matches how
-  rooms themselves work)
-- Guests choose their own room code to join (no auto-generated codes) — makes it trivial to
-  share a memorable code with friends before anyone's even online
+## Feature set
+- JWT authentication (register/login), plus guest access for video rooms only (no account)
+- Friend system (send/accept/reject requests) — only friends can message or call each other
+- 1-on-1 real-time messaging via Socket.IO, with image sharing, typing indicators, online presence
+- Video calling — 1-1 calls and group calls (up to 6 people) share **one** implementation
+  (see Architecture below)
+- Adaptive call layout: full-screen + PiP for 1-2 people, grid for 3-6, matching how
+  WhatsApp/Zoom scale their UI
+- Camera on/off, mic on/off, front/back camera switching, mirrored self-preview — all live,
+  no call interruption
+- In-room text chat during video calls
+- Responsive layout (Tailwind), production hardening (error boundary, 404 page, centralized
+  API error handling, security headers, fail-fast env var validation)
 
-**Deliberately excluded** (mention this in interviews — it shows judgment, not just scope creep):
-group chats/calls, screen sharing, call recording, message read receipts, message
-editing, push notifications, friend removal (you can reject a pending request but
-not un-friend someone once accepted — a reasonable "what's next" answer).
+**Deliberately excluded**: group calls beyond 6 people (would need an SFU media server, not
+mesh WebRTC — see Architecture), screen sharing, call recording, message read receipts,
+push notifications. Each is a reasonable "what would you add next" answer.
 
 ## Architecture
-```
-Browser (React) ⇄ REST API (Express)   → auth, fetching user list & message history
-Browser (React) ⇄ WebSocket (Socket.IO) → sending/receiving messages, typing, presence
-                        ↓
-                    MongoDB (Mongoose)
-```
-- **REST vs WebSocket split**: REST handles anything request/response (login, loading
-  history). Socket.IO handles anything that needs to push data to the client without
-  it asking — a new message arriving, a typing event. This split is the #1 thing to
-  be able to explain clearly.
-- **Auth on the socket**: the JWT is passed in the Socket.IO handshake (`auth: { token }`)
-  and verified server-side before the connection is accepted — same identity system
-  as the REST API, just applied to a persistent connection.
-- **Presence**: an in-memory `Map<userId, socketId>` on the server tracks who's online.
-  Simple and correct for a single server instance. (Good follow-up answer: "at scale
-  you'd move this to Redis so presence works across multiple server instances.")
-- **Image sharing**: the client uploads a file to `POST /api/upload` (REST, not the
-  socket — file uploads don't belong on a WebSocket), which streams it straight to
-  Cloudinary via `multer-storage-cloudinary`. The server never stores the file itself,
-  only the returned URL, which then gets sent as a normal chat message (`type: "image"`).
-- **Video calling (WebRTC)**: the two browsers negotiate a *direct* peer-to-peer
-  connection for audio/video — the server is never in the media path, it only relays
-  three handshake messages over Socket.IO: the SDP `offer`, the SDP `answer`, and ICE
-  candidates. This is the standard WebRTC signaling pattern. A STUN server helps each
-  peer discover its public IP, and a TURN server (Open Relay Project's free tier here)
-  relays media when a direct path can't be found — common when two peers are on
-  different real-world networks (home WiFi + mobile data, corporate NAT, etc.), which
-  is exactly the case once this is actually deployed rather than tested on one LAN.
-  For production you'd swap in your own TURN credentials (Twilio, Metered.ca, or a
-  self-hosted `coturn`) instead of the public demo ones, since they're rate-limited.
+
+### The chat layer
+Standard MERN: Express REST API for anything request/response (auth, fetching history,
+friend requests), Socket.IO for anything that needs to push data without being asked
+(new messages, typing, presence). JWT auth on both the REST routes and the Socket.IO
+handshake. Friend-gating for messaging is enforced **server-side** in the socket
+handler and the REST route — not just hidden in the UI, since a disabled button doesn't
+stop someone from calling the API directly.
+
+### The video calling layer — and a deliberate mid-project redesign
+This app went through a real architectural decision worth describing in an interview.
+
+**Originally**, 1-1 calls and group calls were two separate implementations: 1-1 calls had
+their own WebRTC signaling (`call-user`/`incoming-call`/`answer-call`/ICE exchange) built
+directly around a single peer connection, while group calls used a second, separate mesh
+implementation to handle N participants. Both worked in principle, but maintaining two
+parallel signaling paths for the same underlying feature (peer-to-peer video) meant twice
+the surface area for bugs, and the 1-1 path — being the more bespoke of the two — kept
+breaking in ways that were hard to reproduce.
+
+**The fix wasn't another patch — it was recognizing the duplication.** A 1-1 call is just
+a room with two people in it. So the two implementations were consolidated into one: every
+video call, 1-1 or group, is now a **room** using the same mesh WebRTC code path. A "1-1
+call" is just a friend-only *invite* into a private room — the invite is a lightweight
+notification (`call-invite` → accept/decline), not a WebRTC negotiation. Once accepted,
+both people land on the same `/room/:code` page and the existing, proven room-joining flow
+takes over identically to a public group call.
+
+This is the single most valuable thing to say about this project in an interview: not "I
+built video calling," but "I noticed I had two parallel implementations of the same
+feature, recognized that was the actual source of the bugs, and consolidated them" — that's
+a senior-level instinct, not just a debugging story.
+
+- **Server never touches media** — for both call types, the server only relays signaling
+  messages (SDP offer/answer, ICE candidates) between browsers over Socket.IO. Actual
+  audio/video flows peer-to-peer once negotiation completes.
+- **Mesh, not SFU, capped at 6** — every participant connects directly to every other
+  participant. Mesh bandwidth cost grows with the *square* of room size (each of N people
+  uploads to N-1 others), so it's capped at 6 — past that you'd need an SFU media server
+  (LiveKit, Daily, or self-hosted) that each person uploads to once. Explaining *why* 6, not
+  just that it's capped, is the point.
+- **STUN + TURN** — STUN helps a peer discover its public IP for direct connections; TURN
+  (Open Relay Project's free tier here) relays media when a direct path can't be found,
+  which is common once two people are on different real-world networks rather than one LAN.
+- **ICE candidate queueing** — candidates can arrive before a peer connection exists yet
+  (e.g. before the other person has clicked Accept); they're queued and flushed once the
+  connection is ready, rather than silently dropped.
+- **Muted-by-default remote video** — muted video autoplay is allowed unconditionally in
+  every browser; audio autoplay is not. Starting muted guarantees video always renders, with
+  a one-tap "unmute" as a separate, simpler action than fighting combined video+audio
+  autoplay restrictions.
+- **Camera/mic toggles use `track.enabled`**, not adding/removing tracks — instant on both
+  sides, no renegotiation, no risk of dropping the call.
+- **Guest access is a stateless JWT** — `POST /api/auth/guest` signs a short-lived token
+  with a random id and a name, no database row. Works because the socket auth middleware
+  only verifies the JWT signature, and the room-joining code path never touches the `User`
+  model — video rooms don't need identity, so guests don't need an account.
 
 ## Project structure
 ```
 backend/
-  models/       Mongoose schemas (User, Message)
-  routes/       REST endpoints (auth, users, messages)
+  models/       User, Message, FriendRequest (Mongoose)
+  routes/       REST endpoints (auth, users, messages, friends, upload)
   middleware/   JWT verification for protected routes
-  socket/       Socket.IO connection + event handlers
-  server.js     Express + HTTP server + Socket.IO bootstrap
+  socket/       Socket.IO handlers — messaging, friend-gated call invites, and the
+                unified room-joining/signaling flow that serves both call types
+  server.js     Express + HTTP server + Socket.IO bootstrap, env var validation,
+                security headers, centralized error handler
 frontend/
-  src/context/  AuthContext (login state), SocketContext (shared socket connection),
-                CallContext (1-1 call state — lifted out of Chat.jsx so it survives
-                navigating to the dedicated /call route and back)
+  src/context/  AuthContext (login state), SocketContext (shared connection),
+                CallInviteContext (the friend-invite handshake — no WebRTC code here
+                at all, just notify/accept/decline, then hands off to the room page)
   src/pages/    Home (public landing + guest room join), Login, Register, Chat,
-                CallPage (dedicated 1-1 call screen), GroupCall (video room)
-  src/components/  Sidebar, ChatWindow, MessageBubble, MessageInput
+                GroupCall (the one video-calling implementation, used for both call
+                types), NotFound
+  src/components/  Sidebar, ChatWindow, MessageBubble, MessageInput, IncomingCallBanner,
+                    ErrorBoundary
 ```
 
 ## Running locally
 **Backend**
 ```bash
 cd backend
-cp .env.example .env   # fill in MONGO_URI and JWT_SECRET
+cp .env.example .env   # fill in MONGO_URI, JWT_SECRET, CLOUDINARY_* keys
 npm install
 npm run dev
 ```
@@ -99,104 +115,35 @@ npm run dev
 **Frontend**
 ```bash
 cd frontend
-cp .env.example .env   # set VITE_API_URL to your backend URL
+cp .env.example .env   # set VITE_API_URL
 npm install
 npm run dev
 ```
 
-## Deployment (all free-tier friendly)
-1. **Database**: create a free cluster on MongoDB Atlas, get the connection string.
-2. **Image storage**: create a free Cloudinary account, get your cloud name, API key,
-   and API secret from the dashboard.
-3. **Backend**: deploy `backend/` to Render (or Railway) as a Node web service.
-   Set env vars `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL` (your deployed frontend URL),
-   and the three `CLOUDINARY_*` vars.
-4. **Frontend**: deploy `frontend/` to Vercel (or Netlify). Set `VITE_API_URL` to your
-   Render backend URL. Vite auto-detects the build (`npm run build`, output `dist/`).
-5. Update the backend's `CLIENT_URL` and the CORS/Socket.IO origin to match your live
-   frontend URL once deployed.
-6. Video calls need HTTPS in production (`getUserMedia` requires a secure context) —
-   Render and Vercel both give you this by default, so no extra setup needed there.
+## Deployment
+1. **Database**: MongoDB Atlas free cluster
+2. **Image storage**: Cloudinary free account (cloud name, API key, API secret)
+3. **Backend**: Render (or Railway) — set `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL`
+   (your deployed frontend URL, **no trailing slash** — a trailing slash silently breaks
+   CORS since browsers never send one in the `Origin` header), and the `CLOUDINARY_*` vars
+4. **Frontend**: Vercel or Netlify — set `VITE_API_URL` to your backend URL. If deploying
+   to Netlify, make sure `frontend/public/_redirects` (containing `/* /index.html 200`)
+   is present — without it, direct links to any route other than `/` 404, since Netlify
+   doesn't know client-side routes exist unless told to fall through to `index.html`
+5. Video calls need HTTPS in production (`getUserMedia` requires a secure context) — Render
+   and Vercel/Netlify both provide this by default
 
 ## Talking points for interviews
-- **Why does the 1-1 call live in a React Context instead of the Chat component?**
-  Originally it was local state in `Chat.jsx`, rendered as a full-screen overlay on top
-  of the chat UI. Moving it to its own `/call` route (matching how the group call
-  already worked) meant the call state — the peer connection, the media streams, ICE
-  candidates — had to survive a route change, which local component state can't do
-  (it's destroyed when the component unmounts). Lifting it into `CallContext` alongside
-  the existing `AuthContext`/`SocketContext` pattern solved that: the call keeps running
-  regardless of which page is currently rendered, and `Chat.jsx`, `CallPage.jsx`, and
-  even the sidebar's incoming-call handling all just read from the same shared state.
-- **Why Socket.IO over raw WebSocket?** Auto-reconnection, fallback transports, and
-  room/broadcast helpers — you'd have to hand-roll all of that with raw `ws`.
-- **Why store messages before emitting?** So a message isn't lost if the receiver is
-  offline — it's already in MongoDB and will show up when they load history.
-- **What would break at scale?** The in-memory presence map — it only works with one
-  server process. Multiple instances would need Redis pub/sub (Socket.IO has a Redis
-  adapter for exactly this) so events reach a socket connected to a different instance.
-- **Security**: passwords hashed with bcrypt, JWT-protected REST routes, JWT-verified
-  socket handshake, no sensitive data in the JWT payload beyond the user ID.
-- **Why upload images over REST instead of the socket?** Sockets are for small,
-  frequent, structured events. A multi-megabyte file is a one-off request/response —
-  REST (with multipart form data) is the right tool, and it lets you reuse normal HTTP
-  concerns like file size limits and content-type validation.
-- **Why does the server relay WebRTC signaling instead of just connecting the peers
-  directly?** The two browsers don't know how to reach each other yet — they need a
-  shared channel to exchange connection info first. Once that handshake finishes, media
-  flows peer-to-peer and the server drops out of the picture entirely.
-- **How does camera switching work without dropping the call?** `RTCRtpSender.replaceTrack()`
-  swaps the outgoing video track on the existing peer connection in place — no offer/answer
-  renegotiation needed, so the call doesn't interrupt or reconnect.
-- **What's the difference between STUN and TURN?** STUN just tells a peer its own
-  public IP/port so the *other* peer can try to connect directly to it — cheap, but
-  only works if the network path allows a direct connection. TURN is a fallback relay
-  server: if a direct path can't be established (common with mobile carrier NAT or
-  strict firewalls), media is routed through the TURN server instead. That's why a
-  call that works fine on the same WiFi can fail once it's phone-on-mobile-data vs
-  laptop-on-home-WiFi — TURN is what recovers it.
-- **Group calls and why they're capped at 6**: group calls use the same peer-to-peer
-  mesh pattern as the 1-1 call — every participant opens a direct `RTCPeerConnection`
-  to every other participant. The problem: mesh's bandwidth cost grows with the
-  *square* of the room size (each of N people uploads to N-1 others), so a participant's
-  upload bandwidth becomes the bottleneck fast — most home connections struggle past
-  5-6 simultaneous outgoing video streams. Real apps like Zoom or Meet solve this with
-  an SFU (Selective Forwarding Unit) — a media server each person uploads to *once*,
-  which then forwards streams to everyone else, so upload cost stays constant
-  regardless of room size. Building an SFU from scratch is a substantial project on its
-  own (or you'd use a hosted one like LiveKit/Daily/Agora); capping mesh at 6 here is a
-  deliberate, explainable tradeoff rather than a naive oversight — a strong thing to
-  articulate if asked "would this scale to 100 people?" (Answer: no, and here's exactly
-  why, and here's what you'd swap in instead.)
-- **Room joining is by code, not friendship** — unlike 1-1 chat/calls, anyone with a
-  room code can join a group call, the same way a Zoom/Meet link works. Rooms live only
-  in memory on the server (no database model) since a room is really just "whoever
-  currently has the link open" — it's created the moment the first person joins and
-  disappears once the last person leaves.
-- **Guest access is a stateless JWT, not a database row.** `POST /api/auth/guest` takes
-  just a name and signs a short-lived (12h) token carrying a random id — no MongoDB
-  write at all. This works because the socket auth middleware only verifies the JWT
-  signature and never checks whether that user id exists in the database; the
-  room-signaling code path (join/offer/answer/ICE) never touches the `User` model
-  either. Guests are fully capable of joining and using video rooms, but the `/chat`
-  route (friends, messaging, 1-1 calls) explicitly checks `user.isGuest` and redirects
-  them away, since those features are backed by a real account. This is a clean
-  illustration of scoping a feature to exactly the data it needs — video rooms don't
-  need identity, so guests don't need an account.
-- **Camera/mic on-off toggles**: rather than removing tracks from the peer connection
-  (which would require renegotiation — a fresh offer/answer round trip), toggling
-  `track.enabled = false` is the standard mute/unmute pattern. The track stays attached
-  to the connection, just stops producing frames/audio — instant on both sides, no
-  renegotiation, no risk of dropping the call.
-- **Friend system & authorization**: a `FriendRequest` document only exists while
-  pending — accepting it adds each user's ID to the other's `friends` array (on the
-  `User` model) and deletes the request; rejecting just deletes it. There's
-  deliberately no `status` field to track — "pending" is just "the document exists."
-  The important part: the friends-only rule for both **messaging and calling** is
-  enforced **server-side** — in the `send-message` and `call-user` socket handlers,
-  and again in the REST route for fetching message history — not just by hiding UI
-  elements. A disabled button is a UX nicety; the actual authorization check has to
-  live somewhere the client can't bypass it by editing JavaScript in devtools. This
-  distinction (client-side UX vs. server-side authorization, and checking it at
-  *every* entry point that touches the data, not just the obvious one) is a strong
-  thing to articulate in an interview.
+- **The consolidation decision** (see Architecture) is the strongest story in this
+  project — it's evidence of recognizing duplicate complexity and removing it, not just
+  shipping a feature.
+- **Why REST for uploads but sockets for messages?** Sockets suit small, frequent,
+  structured events. A multi-megabyte file is a one-off request — REST with multipart
+  form data is the right tool, and it reuses ordinary HTTP concerns (size limits,
+  content-type validation) for free.
+- **Client-side UX vs. server-side authorization**: disabling a button is a nicety; the
+  friends-only rule for messaging and calling is enforced in the socket handlers and REST
+  routes themselves, at every entry point that touches the data — not just the obvious one.
+- **What would you add for real scale?** Redis for presence (currently an in-memory Map,
+  fine for one server instance), an SFU for calls beyond 6 people, and your own TURN
+  credentials instead of a shared public demo server.

@@ -1,13 +1,14 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
-import { CallProvider } from "./context/CallContext";
+import { CallInviteProvider } from "./context/CallInviteContext";
+import IncomingCallBanner from "./components/IncomingCallBanner";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Chat from "./pages/Chat";
-import CallPage from "./pages/CallPage";
 import GroupCall from "./pages/GroupCall";
+import NotFound from "./pages/NotFound";
 
 function PrivateRoute({ children, requireFullAccount }) {
   const { user } = useAuth();
@@ -20,7 +21,8 @@ function PrivateRoute({ children, requireFullAccount }) {
 export default function App() {
   return (
     <SocketProvider>
-      <CallProvider>
+      <CallInviteProvider>
+        <IncomingCallBanner />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
@@ -33,17 +35,10 @@ export default function App() {
               </PrivateRoute>
             }
           />
-          <Route
-            path="/call"
-            element={
-              <PrivateRoute requireFullAccount>
-                <CallPage />
-              </PrivateRoute>
-            }
-          />
           <Route path="/room/:roomCode" element={<GroupCall />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
-      </CallProvider>
+      </CallInviteProvider>
     </SocketProvider>
   );
 }

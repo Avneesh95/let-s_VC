@@ -2,14 +2,14 @@ import { useEffect, useState, useCallback } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
-import { useCall } from "../context/CallContext";
+import { useCallInvite } from "../context/CallInviteContext";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 
 export default function Chat() {
   const { user, logout } = useAuth();
   const { socket, onlineUsers } = useSocket();
-  const { startCall } = useCall();
+  const { callFriend } = useCallInvite();
 
   const [users, setUsers] = useState([]);
   const [activeUser, setActiveUser] = useState(null);
@@ -168,7 +168,7 @@ export default function Chat() {
           onTyping={handleTyping}
           onStopTyping={handleStopTyping}
           isOtherTyping={isOtherTyping}
-          onStartCall={() => startCall({ _id: activeUser._id, username: activeUser.username })}
+          onStartCall={() => callFriend(activeUser, user.username)}
           isUserOnline={activeUser ? onlineUsers.includes(activeUser._id) : false}
           onBack={() => setActiveUser(null)}
         />
