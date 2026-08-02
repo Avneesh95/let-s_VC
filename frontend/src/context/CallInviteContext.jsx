@@ -33,7 +33,9 @@ export function CallInviteProvider({ children }) {
     }
     const roomCode = generateRoomCode();
     socket.emit("call-invite", { to: targetUser._id, roomCode, callerName });
-    navigate(`/room/${roomCode}`);
+    navigate(`/room/${roomCode}`, {
+      state: { isDirectCall: true, otherUserName: targetUser.username },
+    });
   };
 
   const acceptInvite = () => {
@@ -43,7 +45,9 @@ export function CallInviteProvider({ children }) {
       roomCode: incomingInvite.roomCode,
       accepted: true,
     });
-    navigate(`/room/${incomingInvite.roomCode}`);
+    navigate(`/room/${incomingInvite.roomCode}`, {
+      state: { isDirectCall: true, otherUserName: incomingInvite.callerName },
+    });
     setIncomingInvite(null);
   };
 

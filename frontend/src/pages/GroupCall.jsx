@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
@@ -7,6 +7,74 @@ import ICE_SERVERS from "../utils/iceServers";
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
 const MAX_PARTICIPANTS = 6;
+
+// Wraps the floating self-view PiP (used when there's exactly one other
+// participant, i.e. a 1-1-style call) to make it draggable anywhere within
+// the video area — the same "move your own bubble" behavior WhatsApp uses.
+// Uses the Pointer Events API so one set of handlers covers both mouse and
+// touch, rather than maintaining separate mouse/touch listeners.
+function DraggableSelfView({ children, widthClass }) {
+  const elRef = useRef(null);
+  const [pos, setPos] = useState({ top: 16, left: null }); // left resolves to top-right on first measure
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0 });
+
+  useEffect(() => {
+    const el = elRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    const parentRect = parent.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    setPos({ top: 16, left: parentRect.width - elRect.width - 16 });
+  }, []);
+
+  const clamp = (left, top) => {
+    const el = elRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return { left, top };
+    const parentRect = parent.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    return {
+      left: Math.max(0, Math.min(left, parentRect.width - elRect.width)),
+      top: Math.max(0, Math.min(top, parentRect.height - elRect.height)),
+    };
+  };
+
+  const onPointerDown = (e) => {
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: pos.left ?? 0,
+      origTop: pos.top ?? 0,
+    };
+    elRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setPos(clamp(dragRef.current.origLeft + dx, dragRef.current.origTop + dy));
+  };
+
+  const onPointerUp = (e) => {
+    dragRef.current.active = false;
+    elRef.current?.releasePointerCapture(e.pointerId);
+  };
+
+  return (
+    <div
+      ref={elRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      className={`absolute ${widthClass} cursor-grab active:cursor-grabbing touch-none select-none z-20`}
+      style={{ top: pos.top, left: pos.left ?? undefined }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
   const videoRef = useRef(null);
@@ -64,6 +132,13 @@ export default function GroupCall() {
   // silently put them in a *different* room than intended.
   const roomCode = rawRoomCode.toUpperCase();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Set when this room was entered via a friend's call invite rather than
+  // a shared public link — in that case we hide the room code/participant
+  // count (nothing to share) and show who you're calling instead, matching
+  // how a normal 1-1 video call looks rather than a "join a room" screen.
+  const isDirectCall = location.state?.isDirectCall === true;
+  const directCallOtherName = location.state?.otherUserName;
   const { user, guestLogin } = useAuth();
   const { socket } = useSocket();
 
@@ -440,23 +515,35 @@ export default function GroupCall() {
     <div className="h-dvh md:h-screen bg-ink text-white flex flex-col">
       <div className="flex items-center justify-between gap-2 px-3 md:px-4 py-2.5 md:py-3 bg-black/30 border-b border-white/5">
         <div className="flex items-baseline gap-2 md:gap-3 min-w-0">
-          <span className="hidden sm:inline text-xs text-white/40 uppercase tracking-wide">
-            Room
-          </span>
-          <span className="font-display font-semibold tracking-widest truncate">{roomCode}</span>
-          <span className="text-xs md:text-sm text-white/40 shrink-0">
-            {participantCount}/{MAX_PARTICIPANTS}
-          </span>
+          {isDirectCall ? (
+            <span className="font-display font-semibold truncate">
+              {directCallOtherName || "Call"}
+            </span>
+          ) : (
+            <>
+              <span className="hidden sm:inline text-xs text-white/40 uppercase tracking-wide">
+                Room
+              </span>
+              <span className="font-display font-semibold tracking-widest truncate">
+                {roomCode}
+              </span>
+              <span className="text-xs md:text-sm text-white/40 shrink-0">
+                {participantCount}/{MAX_PARTICIPANTS}
+              </span>
+            </>
+          )}
         </div>
         <div className="flex gap-1.5 md:gap-2 shrink-0">
-          <button
-            onClick={copyInviteLink}
-            title="Copy room link"
-            className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-2.5 md:px-3 py-1.5"
-          >
-            <span className="sm:hidden">🔗</span>
-            <span className="hidden sm:inline">Copy Link</span>
-          </button>
+          {!isDirectCall && (
+            <button
+              onClick={copyInviteLink}
+              title="Copy room link"
+              className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-2.5 md:px-3 py-1.5"
+            >
+              <span className="sm:hidden">🔗</span>
+              <span className="hidden sm:inline">Copy Link</span>
+            </button>
+          )}
           <button
             onClick={leaveRoom}
             className="text-xs md:text-sm bg-danger hover:opacity-90 transition-opacity rounded-lg px-2.5 md:px-3 py-1.5"
@@ -482,25 +569,34 @@ export default function GroupCall() {
               />
               <div className="absolute inset-x-0 top-6 md:top-8 flex justify-center px-4">
                 <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
-                  <p className="text-sm text-white/60">Waiting for others to join…</p>
-                  <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
-                    {roomCode}
-                  </p>
+                  {isDirectCall ? (
+                    <p className="font-display text-lg md:text-xl font-semibold">
+                      Calling {directCallOtherName}…
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm text-white/60">Waiting for others to join…</p>
+                      <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
+                        {roomCode}
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </>
           )}
 
           {participantCount === 2 && (
-            // Exactly one other person — full-screen for them, small PiP for self,
-            // same layout as the 1-1 call.
+            // Exactly one other person — full-screen for them, a draggable
+            // PiP for self (WhatsApp-style: tap and drag your own bubble
+            // anywhere on screen), same layout as a 1-1 call.
             <>
               <VideoTile
                 stream={otherParticipants[0][1].stream}
                 label={otherParticipants[0][1].username}
                 fullSize
               />
-              <div className="absolute top-4 right-4 w-28 md:w-40">
+              <DraggableSelfView widthClass="w-24 md:w-40">
                 <VideoTile
                   stream={localStream}
                   label={`${user.username} (You)`}
@@ -508,7 +604,7 @@ export default function GroupCall() {
                   cameraOff={!isCameraOn}
                   mirrored={facingMode === "user"}
                 />
-              </div>
+              </DraggableSelfView>
             </>
           )}
 
@@ -517,8 +613,8 @@ export default function GroupCall() {
             // 1 centered (at half-width, not stretched full-width) below —
             // stretching the 3rd tile to col-span-2 made it visibly taller
             // than the tiles above it since aspect-video scales with width.
-            <div className="h-full p-3 flex flex-col gap-3">
-              <div className="flex-1 grid grid-cols-2 gap-3">
+            <div className="h-full p-2 md:p-3 flex flex-col gap-2 md:gap-3">
+              <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
                 {selfTile}
                 <VideoTile stream={otherParticipants[0][1].stream} label={otherParticipants[0][1].username} />
               </div>
@@ -532,7 +628,7 @@ export default function GroupCall() {
 
           {participantCount === 4 && (
             // Exactly 4 — a clean 2x2, no leftover space
-            <div className="h-full p-3 grid grid-cols-2 grid-rows-2 gap-3">
+            <div className="h-full p-2 md:p-3 grid grid-cols-2 grid-rows-2 gap-2 md:gap-3">
               {selfTile}
               {otherParticipants.map(([userId, p]) => (
                 <VideoTile key={userId} stream={p.stream} label={p.username} />
@@ -541,8 +637,9 @@ export default function GroupCall() {
           )}
 
           {participantCount >= 5 && (
-            // 5-6 people — 3 per row
-            <div className="h-full overflow-y-auto p-3 grid grid-cols-3 gap-3 auto-rows-fr content-center">
+            // 5-6 people — 2 per row on phones (3 columns would squeeze
+            // tiles too small on a narrow screen), 3 per row on tablet+
+            <div className="h-full overflow-y-auto p-2 md:p-3 grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 auto-rows-fr content-center">
               {selfTile}
               {otherParticipants.map(([userId, p]) => (
                 <VideoTile key={userId} stream={p.stream} label={p.username} />
