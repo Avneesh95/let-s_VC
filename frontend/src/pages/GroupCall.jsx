@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
@@ -132,13 +132,16 @@ export default function GroupCall() {
   // silently put them in a *different* room than intended.
   const roomCode = rawRoomCode.toUpperCase();
   const navigate = useNavigate();
-  const location = useLocation();
   // Set when this room was entered via a friend's call invite rather than
   // a shared public link — in that case we hide the room code/participant
   // count (nothing to share) and show who you're calling instead, matching
   // how a normal 1-1 video call looks rather than a "join a room" screen.
-  const isDirectCall = location.state?.isDirectCall === true;
-  const directCallOtherName = location.state?.otherUserName;
+  // Read from sessionStorage (not navigation state) specifically so this
+  // survives a page refresh — navigation state only lives for the single
+  // navigation event that set it and is gone the moment the page reloads.
+  const directCallInfo = JSON.parse(sessionStorage.getItem(`directCall:${roomCode}`) || "null");
+  const isDirectCall = !!directCallInfo;
+  const directCallOtherName = directCallInfo?.otherUserName;
   const { user, guestLogin } = useAuth();
   const { socket } = useSocket();
 
@@ -369,7 +372,10 @@ export default function GroupCall() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const leaveRoom = () => navigate("/");
+  const leaveRoom = () => {
+    sessionStorage.removeItem(`directCall:${roomCode}`);
+    navigate("/");
+  };
 
   const toggleCamera = () => {
     const track = localStream?.getVideoTracks()[0];

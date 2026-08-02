@@ -33,9 +33,11 @@ export function CallInviteProvider({ children }) {
     }
     const roomCode = generateRoomCode();
     socket.emit("call-invite", { to: targetUser._id, roomCode, callerName });
-    navigate(`/room/${roomCode}`, {
-      state: { isDirectCall: true, otherUserName: targetUser.username },
-    });
+    // sessionStorage, not just navigation state — state only lives for the
+    // one navigation event and is lost on any page refresh, which was
+    // exactly why the room code/count kept reappearing after a reload.
+    sessionStorage.setItem(`directCall:${roomCode}`, JSON.stringify({ otherUserName: targetUser.username }));
+    navigate(`/room/${roomCode}`);
   };
 
   const acceptInvite = () => {
@@ -45,9 +47,11 @@ export function CallInviteProvider({ children }) {
       roomCode: incomingInvite.roomCode,
       accepted: true,
     });
-    navigate(`/room/${incomingInvite.roomCode}`, {
-      state: { isDirectCall: true, otherUserName: incomingInvite.callerName },
-    });
+    sessionStorage.setItem(
+      `directCall:${incomingInvite.roomCode}`,
+      JSON.stringify({ otherUserName: incomingInvite.callerName })
+    );
+    navigate(`/room/${incomingInvite.roomCode}`);
     setIncomingInvite(null);
   };
 
