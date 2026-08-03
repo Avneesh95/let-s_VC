@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSocket } from "./SocketContext";
 import generateRoomCode from "../utils/generateRoomCode";
+import { requestNotificationPermission, showNotification } from "../utils/notifications";
 
 const CallInviteContext = createContext(null);
 
@@ -14,17 +15,48 @@ export function CallInviteProvider({ children }) {
   const navigate = useNavigate();
 
   const [incomingInvite, setIncomingInvite] = useState(null); // { from, roomCode, callerName }
+  const activeNotification = useRef(null);
+
+  // Ask for notification permission once the user is actually logged in
+  // (socket only exists once authenticated) — not on the public landing
+  // page before they've done anything, which would feel premature.
+  useEffect(() => {
+    if (socket) requestNotificationPermission();
+  }, [socket]);
 
   useEffect(() => {
     if (!socket) return;
 
     const handleInvite = ({ from, roomCode, callerName }) => {
       setIncomingInvite({ from, roomCode, callerName });
+
+      // Only bother with an OS-level notification if they're not already
+      // looking at the tab — the in-app banner already covers that case,
+      // and a redundant notification on top of a visible banner is just noise.
+      if (document.hidden) {
+        const notif = showNotification(`${callerName} is calling…`, {
+          body: "Click to open the call",
+          tag: "incoming-call", // replaces any previous call notification instead of stacking
+          requireInteraction: true, // stays on screen until dismissed, not auto-timeout
+        });
+        if (notif) {
+          activeNotification.current = notif;
+          notif.onclick = () => {
+            window.focus();
+            notif.close();
+          };
+        }
+      }
     };
 
     socket.on("call-invite", handleInvite);
     return () => socket.off("call-invite", handleInvite);
   }, [socket]);
+
+  const closeActiveNotification = () => {
+    activeNotification.current?.close();
+    activeNotification.current = null;
+  };
 
   const callFriend = (targetUser, callerName) => {
     if (!socket) {
@@ -42,6 +74,7 @@ export function CallInviteProvider({ children }) {
 
   const acceptInvite = () => {
     if (!incomingInvite) return;
+    closeActiveNotification();
     socket.emit("call-invite-response", {
       to: incomingInvite.from,
       roomCode: incomingInvite.roomCode,
@@ -57,6 +90,7 @@ export function CallInviteProvider({ children }) {
 
   const declineInvite = () => {
     if (!incomingInvite) return;
+    closeActiveNotification();
     socket.emit("call-invite-response", {
       to: incomingInvite.from,
       roomCode: incomingInvite.roomCode,

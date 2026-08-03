@@ -16,6 +16,9 @@ decision (and why) is the most interesting thing to talk about in this project.
 - Camera on/off, mic on/off, front/back camera switching, mirrored self-preview — all live,
   no call interruption
 - In-room text chat during video calls
+- Installable as a PWA (Add to Home Screen / desktop install), with an offline-resilient
+  app shell via a service worker
+- Browser notifications for incoming calls when the tab isn't focused
 - Responsive layout (Tailwind), production hardening (error boundary, 404 page, centralized
   API error handling, security headers, fail-fast env var validation)
 
@@ -134,6 +137,16 @@ npm run dev
    and Vercel/Netlify both provide this by default
 
 ## Talking points for interviews
+- **Why network-first, not cache-first, for the service worker?** Cache-first would risk
+  showing a stale build after a redeploy, which is exactly the kind of "why isn't my fix
+  showing up" confusion worth avoiding in an app with frequent deploys. Network-first means
+  the cache is purely a fallback for when you're offline, never a way to accidentally mask
+  a fresh deploy.
+- **Why doesn't the service worker touch API or Socket.IO requests?** A chat app's entire
+  value is real-time, live data — caching a message list or a websocket handshake would mean
+  serving stale conversations or silently breaking calls. The service worker only caches the
+  static app shell (HTML/JS/CSS/icons); anything that talks to the backend always hits the
+  network directly, un-intercepted.
 - **The consolidation decision** (see Architecture) is the strongest story in this
   project — it's evidence of recognizing duplicate complexity and removing it, not just
   shipping a feature.
