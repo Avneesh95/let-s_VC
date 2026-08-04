@@ -8,7 +8,13 @@ decision (and why) is the most interesting thing to talk about in this project.
 ## Feature set
 - JWT authentication (register/login), plus guest access for video rooms only (no account)
 - Friend system (send/accept/reject requests) — only friends can message or call each other
-- 1-on-1 real-time messaging via Socket.IO, with image sharing, typing indicators, online presence
+- Two distinct views instead of one ambiguous list: **Chats** (friends only, click straight
+  into a conversation) and **Find People** (everyone, as browsable cards with add/accept/
+  reject actions) — see Architecture for why
+- 1-on-1 real-time messaging via Socket.IO, with image sharing, message reactions
+  (one per person per message, toggle to remove), typing indicators, online presence
+- Light/dark mode, persisted and defaulting to system preference
+- Screen sharing during any call — swaps the outgoing video track live, no renegotiation
 - Video calling — 1-1 calls and group calls (up to 6 people) share **one** implementation
   (see Architecture below)
 - Adaptive call layout: full-screen + PiP for 1-2 people, grid for 3-6, matching how
@@ -27,6 +33,21 @@ mesh WebRTC — see Architecture), screen sharing, call recording, message read 
 push notifications. Each is a reasonable "what would you add next" answer.
 
 ## Architecture
+
+### Chats vs. Find People — resolving an actual UX ambiguity
+Early on, the sidebar showed every registered user in one list, with add/accept/reject
+buttons mixed in for non-friends. That's genuinely ambiguous: should a chat app's main
+list show everyone, or only people you can actually message? The answer is **both — in
+two different places**, which is what every real chat app does even if it's not obvious
+at first: a **Chats** list of people you have an actual relationship with, and a separate
+**Find People** view for discovery. Conflating them into one list is the actual bug being
+fixed here, not just a styling choice.
+- **Chats** — friends only, click a row to open the conversation.
+- **Find People** — everyone, rendered as cards (not the same list styling as Chats, so
+  it's visually clear this is a different kind of screen), each with an add/pending/accept/
+  reject action depending on relationship status. Clicking a card for someone who's already
+  a friend opens their chat (jumps back to the Chats tab); clicking anyone else just exposes
+  the friend-request actions, since you can't message someone you're not friends with yet.
 
 ### The chat layer
 Standard MERN: Express REST API for anything request/response (auth, fetching history,
@@ -137,6 +158,20 @@ npm run dev
    and Vercel/Netlify both provide this by default
 
 ## Talking points for interviews
+- **The Chats/Find People split** is worth mentioning as a UX decision, not just a code
+  change — conflating "everyone" and "people you talk to" into one list is a common mistake
+  in early chat-app builds, and separating them is what most production apps actually do.
+- **Dark mode via CSS variables, not per-component `dark:` classes.** `paper`/`ink`/
+  `surface`/`line` are Tailwind colors that resolve to CSS custom properties, which flip in
+  a single `.dark` class rule. Toggling the theme re-themes the whole app without hunting
+  down every component — the tradeoff is video call screens needed a separate, fixed
+  `callbg` color, since those should stay dark regardless of app theme (same convention
+  every calling app follows), and `ink` alone couldn't serve both roles once it became
+  theme-aware.
+- **Screen sharing reuses `replaceTrack`**, the exact same mechanism as camera switching —
+  swap the outgoing video track on every peer connection in the room, no renegotiation. The
+  one extra piece: listening for the track's own `onended` event, since the browser's
+  built-in "Stop sharing" button can end a share without going through the app's UI at all.
 - **Why network-first, not cache-first, for the service worker?** Cache-first would risk
   showing a stale build after a redeploy, which is exactly the kind of "why isn't my fix
   showing up" confusion worth avoiding in an app with frequent deploys. Network-first means

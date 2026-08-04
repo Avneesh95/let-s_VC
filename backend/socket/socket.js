@@ -139,6 +139,38 @@ function initSocket(io) {
       }
     });
 
+    // --- Message reactions ---
+    // One reaction per user per message: tapping the same emoji again
+    // removes it, tapping a different one switches it. Authorization here
+    // is "you're one of the two people in this conversation" — reusing
+    // sender/receiver on the message itself rather than a separate
+    // friends check, since only participants can ever see the message.
+    socket.on("react-message", async ({ messageId, emoji, otherUserId }) => {
+      try {
+        const message = await Message.findById(messageId);
+        if (!message) return;
+        const participantIds = [message.sender.toString(), message.receiver.toString()];
+        if (!participantIds.includes(socket.userId)) return;
+
+        const existingIndex = message.reactions.findIndex((r) => r.user.toString() === socket.userId);
+        if (existingIndex !== -1 && message.reactions[existingIndex].emoji === emoji) {
+          message.reactions.splice(existingIndex, 1);
+        } else if (existingIndex !== -1) {
+          message.reactions[existingIndex].emoji = emoji;
+        } else {
+          message.reactions.push({ emoji, user: socket.userId });
+        }
+        await message.save();
+
+        const payload = { messageId, reactions: message.reactions };
+        const receiverSocketId = getSocketId(otherUserId);
+        if (receiverSocketId) io.to(receiverSocketId).emit("message-reaction-updated", payload);
+        socket.emit("message-reaction-updated", payload);
+      } catch (err) {
+        console.error("react-message error:", err.message);
+      }
+    });
+
     // --- Call invite (1-1 "call" = a friend-only invite into a room) ---
     // No WebRTC signaling lives here at all — this just notifies the friend
     // and hands both people off to the room-joining flow below, which is

@@ -7,7 +7,7 @@ export default function IncomingCallBanner() {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100]">
-      <div className="bg-ink text-white rounded-2xl p-6 min-w-[280px] w-[92vw] md:w-auto flex flex-col items-center gap-4">
+      <div className="bg-callbg text-white rounded-2xl p-6 min-w-[280px] w-[92vw] md:w-auto flex flex-col items-center gap-4">
         <p className="text-lg">
           <span className="font-display font-semibold">{incomingInvite.callerName}</span> is
           calling…

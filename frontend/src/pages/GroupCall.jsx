@@ -113,7 +113,7 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
         <span className="text-white/40 text-sm">Connecting…</span>
       )}
       {cameraOff && (
-        <div className="absolute inset-0 bg-ink flex items-center justify-center text-3xl">
+        <div className="absolute inset-0 bg-callbg flex items-center justify-center text-3xl">
           📷🚫
         </div>
       )}
@@ -177,6 +177,10 @@ export default function GroupCall() {
   const [facingMode, setFacingMode] = useState("user");
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  // Remembers the camera video track while screen sharing is active, so
+  // stopping the share can restore the camera feed exactly as it was.
+  const cameraTrackRef = useRef(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]); // { senderId, username, text, timestamp }
   const [chatInput, setChatInput] = useState("");
@@ -436,6 +440,71 @@ export default function GroupCall() {
     }
   };
 
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      // Stop sharing — restore the camera track we set aside, on every
+      // peer connection in the room, same pattern as switchCamera.
+      const screenTrack = localStream?.getVideoTracks()[0];
+      screenTrack?.stop();
+
+      const cameraTrack = cameraTrackRef.current;
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+        sender?.replaceTrack(cameraTrack);
+      });
+
+      const restoredStream = new MediaStream([cameraTrack, ...localStream.getAudioTracks()]);
+      localStreamRef.current = restoredStream;
+      setLocalStream(restoredStream);
+      setIsScreenSharing(false);
+      cameraTrackRef.current = null;
+      return;
+    }
+
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+
+      // Remember the current camera track so toggling back off can
+      // restore it exactly, rather than requesting the camera again
+      // (which would need another permission round-trip).
+      cameraTrackRef.current = localStream.getVideoTracks()[0];
+
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+        sender?.replaceTrack(screenTrack);
+      });
+
+      const sharingStream = new MediaStream([screenTrack, ...localStream.getAudioTracks()]);
+      localStreamRef.current = sharingStream;
+      setLocalStream(sharingStream);
+      setIsScreenSharing(true);
+
+      // The browser's own built-in "Stop sharing" bar can end the share
+      // without going through our button at all — listen for that so our
+      // state (and everyone else's view) stays in sync either way.
+      screenTrack.onended = () => {
+        if (cameraTrackRef.current) {
+          const pc2Stream = new MediaStream([cameraTrackRef.current, ...localStreamRef.current.getAudioTracks()]);
+          peerConnections.current.forEach((pc) => {
+            const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+            sender?.replaceTrack(cameraTrackRef.current);
+          });
+          localStreamRef.current = pc2Stream;
+          setLocalStream(pc2Stream);
+          cameraTrackRef.current = null;
+        }
+        setIsScreenSharing(false);
+      };
+    } catch (err) {
+      // User cancelled the "choose a window/screen" picker — not an error
+      // worth alerting about, just a no-op.
+      if (err.name !== "NotAllowedError") {
+        console.error("Screen share failed:", err);
+      }
+    }
+  };
+
   const copyInviteLink = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -454,7 +523,7 @@ export default function GroupCall() {
 
   if (!user) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-ink text-white p-4">
+      <div className="h-dvh flex items-center justify-center bg-callbg text-white p-4">
         <form
           onSubmit={handleGuestJoin}
           className="bg-white/5 border border-white/10 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-3"
@@ -486,7 +555,7 @@ export default function GroupCall() {
 
   if (error) {
     return (
-      <div className="h-dvh flex flex-col items-center justify-center bg-ink text-white gap-4 p-6 text-center">
+      <div className="h-dvh flex flex-col items-center justify-center bg-callbg text-white gap-4 p-6 text-center">
         <p className="text-danger">{error}</p>
         <button
           onClick={leaveRoom}
@@ -500,7 +569,7 @@ export default function GroupCall() {
 
   if (!localStream) {
     return (
-      <div className="h-dvh flex items-center justify-center bg-ink text-white/60">
+      <div className="h-dvh flex items-center justify-center bg-callbg text-white/60">
         Getting camera ready…
       </div>
     );
@@ -513,12 +582,12 @@ export default function GroupCall() {
       label={`${user.username} (You)`}
       muted
       cameraOff={!isCameraOn}
-      mirrored={facingMode === "user"}
+      mirrored={facingMode === "user" && !isScreenSharing}
     />
   );
 
   return (
-    <div className="h-dvh md:h-screen bg-ink text-white flex flex-col">
+    <div className="h-dvh md:h-screen bg-callbg text-white flex flex-col">
       <div className="flex items-center justify-between gap-2 px-3 md:px-4 py-2.5 md:py-3 bg-black/30 border-b border-white/5">
         <div className="flex items-baseline gap-2 md:gap-3 min-w-0">
           {isDirectCall ? (
@@ -571,7 +640,7 @@ export default function GroupCall() {
                 muted
                 fullSize
                 cameraOff={!isCameraOn}
-                mirrored={facingMode === "user"}
+                mirrored={facingMode === "user" && !isScreenSharing}
               />
               <div className="absolute inset-x-0 top-6 md:top-8 flex justify-center px-4">
                 <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
@@ -608,7 +677,7 @@ export default function GroupCall() {
                   label={`${user.username} (You)`}
                   muted
                   cameraOff={!isCameraOn}
-                  mirrored={facingMode === "user"}
+                  mirrored={facingMode === "user" && !isScreenSharing}
                 />
               </DraggableSelfView>
             </>
@@ -655,7 +724,7 @@ export default function GroupCall() {
         </div>
 
         {chatOpen && (
-          <div className="absolute inset-0 md:static md:w-72 md:max-w-[80vw] bg-ink md:bg-black/40 backdrop-blur-sm flex flex-col border-l border-white/10 z-10">
+          <div className="absolute inset-0 md:static md:w-72 md:max-w-[80vw] bg-callbg md:bg-black/40 backdrop-blur-sm flex flex-col border-l border-white/10 z-10">
             <div className="px-3 py-2.5 border-b border-white/10 font-display font-semibold text-sm flex items-center justify-between">
               Room Chat
               <button
@@ -721,6 +790,15 @@ export default function GroupCall() {
           className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 transition-colors flex items-center justify-center text-base md:text-lg"
         >
           🔄
+        </button>
+        <button
+          onClick={toggleScreenShare}
+          title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg transition-all ${
+            isScreenSharing ? "bg-neon text-ink shadow-neon" : "bg-white/10 hover:bg-white/20"
+          }`}
+        >
+          🖥️
         </button>
         <button
           onClick={() => setChatOpen((v) => !v)}

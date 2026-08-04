@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import generateRoomCode from "../utils/generateRoomCode";
+import ThemeToggle from "./ThemeToggle";
 
-function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
+function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
   if (user.friendStatus === "friends") {
     return <span className="text-xs text-brand font-medium whitespace-nowrap">✓ Friend</span>;
   }
-
   if (user.friendStatus === "request-sent") {
     return <span className="text-xs text-ink/30 whitespace-nowrap">Requested</span>;
   }
-
   if (user.friendStatus === "request-received") {
     return (
       <div className="flex gap-1">
@@ -37,8 +36,6 @@ function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
       </div>
     );
   }
-
-  // friendStatus === "none"
   return (
     <button
       onClick={(e) => {
@@ -49,6 +46,59 @@ function FriendAction({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
     >
       + Add
     </button>
+  );
+}
+
+// A chat row — a friend you can click straight into a conversation with.
+function ChatRow({ u, isActive, onSelect }) {
+  return (
+    <li
+      onClick={() => onSelect(u)}
+      className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-paper transition-colors ${
+        isActive ? "bg-paper" : ""
+      }`}
+    >
+      <span
+        className="w-10 h-10 rounded-full text-white font-semibold flex items-center justify-center shrink-0"
+        style={{ backgroundColor: u.avatarColor }}
+      >
+        {u.username[0].toUpperCase()}
+      </span>
+      <span className="flex flex-col min-w-0 flex-1">
+        <span className="font-medium text-ink truncate">{u.username}</span>
+      </span>
+    </li>
+  );
+}
+
+// A person card in "Find People" — everyone, not just friends, since this
+// is the discovery view. Clicking a card that's already a friend opens
+// their chat; clicking anyone else is just the add/accept/reject actions.
+function PersonCard({ u, onOpenChat, onAddFriend, onAcceptRequest, onRejectRequest }) {
+  const clickable = u.friendStatus === "friends";
+  return (
+    <div
+      onClick={() => clickable && onOpenChat(u)}
+      className={`flex items-center gap-3 p-3 rounded-xl border border-line/10 bg-surface ${
+        clickable ? "cursor-pointer hover:border-brand/40 hover:shadow-sm" : ""
+      } transition-all`}
+    >
+      <span
+        className="w-11 h-11 rounded-full text-white font-semibold flex items-center justify-center shrink-0"
+        style={{ backgroundColor: u.avatarColor }}
+      >
+        {u.username[0].toUpperCase()}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="font-medium text-ink truncate block">{u.username}</span>
+      </span>
+      <FriendActionButton
+        user={u}
+        onAddFriend={onAddFriend}
+        onAcceptRequest={onAcceptRequest}
+        onRejectRequest={onRejectRequest}
+      />
+    </div>
   );
 }
 
@@ -66,10 +116,13 @@ export default function Sidebar({
   const userList = Array.isArray(users) ? users : [];
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState("");
+  const [tab, setTab] = useState("chats"); // "chats" | "find"
+
+  const friends = userList.filter((u) => u.friendStatus === "friends");
+  const pendingReceivedCount = userList.filter((u) => u.friendStatus === "request-received").length;
 
   const startGroupCall = () => {
-    const code = generateRoomCode();
-    navigate(`/room/${code}`);
+    navigate(`/room/${generateRoomCode()}`);
   };
 
   const joinGroupCall = (e) => {
@@ -78,21 +131,29 @@ export default function Sidebar({
     navigate(`/room/${joinCode.trim().toUpperCase()}`);
   };
 
+  const openChatFromCard = (u) => {
+    onSelect(u);
+    setTab("chats");
+  };
+
   return (
-    <aside className="w-full md:w-[300px] bg-white border-r border-black/5 flex flex-col shrink-0">
-      <div className="px-4 py-3 border-b border-black/5 flex items-center justify-between">
+    <aside className="w-full md:w-[300px] bg-surface border-r border-line/10 flex flex-col shrink-0">
+      <div className="px-4 py-3 border-b border-line/10 flex items-center justify-between">
         <span className="font-display font-semibold text-ink">
           chat<span className="text-brand">/</span>app
         </span>
-        <button
-          onClick={onLogout}
-          className="text-xs border border-black/10 rounded px-2 py-1 hover:bg-paper transition-colors"
-        >
-          Log out
-        </button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <button
+            onClick={onLogout}
+            className="text-xs border border-line/15 rounded px-2 py-1 hover:bg-paper transition-colors"
+          >
+            Log out
+          </button>
+        </div>
       </div>
 
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-black/5">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line/10">
         <span
           className="w-8 h-8 rounded-full text-white text-sm font-semibold flex items-center justify-center shrink-0"
           style={{ backgroundColor: currentUser.avatarColor || "#1F6F5C" }}
@@ -102,7 +163,7 @@ export default function Sidebar({
         <span className="text-sm font-medium text-ink truncate">{currentUser.username}</span>
       </div>
 
-      <div className="px-4 py-3 border-b border-black/5 flex flex-col gap-2 bg-paper/60">
+      <div className="px-4 py-3 border-b border-line/10 flex flex-col gap-2 bg-paper/60">
         <button
           onClick={startGroupCall}
           className="text-sm bg-brand hover:bg-brand-dark transition-colors text-white font-semibold rounded-lg py-2"
@@ -115,50 +176,78 @@ export default function Sidebar({
             placeholder="Enter room code"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
-            className="flex-1 min-w-0 border border-black/10 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 uppercase bg-white"
+            className="flex-1 min-w-0 border border-line/15 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40 uppercase bg-surface"
             maxLength={6}
           />
           <button
             type="submit"
-            className="text-sm border border-black/10 rounded-lg px-3 py-1.5 hover:bg-white transition-colors bg-white"
+            className="text-sm border border-line/15 rounded-lg px-3 py-1.5 hover:bg-surface transition-colors bg-surface"
           >
             Join
           </button>
         </form>
       </div>
 
-      <ul className="flex-1 overflow-y-auto">
-        {userList.map((u) => (
-          <li
-            key={u._id}
-            onClick={() => onSelect(u)}
-            className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-paper transition-colors ${
-              activeUser?._id === u._id ? "bg-paper" : ""
-            }`}
-          >
-            <span
-              className="w-10 h-10 rounded-full text-white font-semibold flex items-center justify-center shrink-0"
-              style={{ backgroundColor: u.avatarColor }}
+      <div className="flex px-3 pt-3 gap-1">
+        <button
+          onClick={() => setTab("chats")}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition-colors ${
+            tab === "chats" ? "bg-brand text-white" : "text-ink/50 hover:bg-paper"
+          }`}
+        >
+          Chats
+        </button>
+        <button
+          onClick={() => setTab("find")}
+          className={`relative flex-1 text-sm font-medium rounded-lg py-2 transition-colors ${
+            tab === "find" ? "bg-brand text-white" : "text-ink/50 hover:bg-paper"
+          }`}
+        >
+          Find People
+          {pendingReceivedCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-danger text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+              {pendingReceivedCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {tab === "chats" ? (
+        friends.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 gap-2">
+            <p className="text-sm text-ink/50">No friends yet.</p>
+            <button
+              onClick={() => setTab("find")}
+              className="text-sm text-brand hover:underline font-medium"
             >
-              {u.username[0].toUpperCase()}
-            </span>
-            <span className="flex flex-col min-w-0 flex-1">
-              <span className="font-medium text-ink truncate">{u.username}</span>
-              <span
-                className={`text-xs ${onlineUsers.includes(u._id) ? "text-brand" : "text-ink/30"}`}
-              >
-                {onlineUsers.includes(u._id) ? "Online" : "Offline"}
-              </span>
-            </span>
-            <FriendAction
-              user={u}
-              onAddFriend={onAddFriend}
-              onAcceptRequest={onAcceptRequest}
-              onRejectRequest={onRejectRequest}
-            />
-          </li>
-        ))}
-      </ul>
+              Find people to chat with
+            </button>
+          </div>
+        ) : (
+          <ul className="flex-1 overflow-y-auto py-1">
+            {friends.map((u) => (
+              <ChatRow key={u._id} u={u} isActive={activeUser?._id === u._id} onSelect={onSelect} />
+            ))}
+          </ul>
+        )
+      ) : (
+        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+          {userList.length === 0 ? (
+            <p className="text-sm text-ink/40 text-center mt-4">No one else has joined yet.</p>
+          ) : (
+            userList.map((u) => (
+              <PersonCard
+                key={u._id}
+                u={u}
+                onOpenChat={openChatFromCard}
+                onAddFriend={onAddFriend}
+                onAcceptRequest={onAcceptRequest}
+                onRejectRequest={onRejectRequest}
+              />
+            ))
+          )}
+        </div>
+      )}
     </aside>
   );
 }

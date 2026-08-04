@@ -71,6 +71,9 @@ export default function Chat() {
     };
     const handleSent = (message) => setMessages((prev) => [...prev, message]);
     const handleMessageError = ({ message }) => alert(message);
+    const handleReactionUpdated = ({ messageId, reactions }) => {
+      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, reactions } : m)));
+    };
     const handleTyping = ({ senderId }) => {
       if (activeUser && senderId === activeUser._id) setIsOtherTyping(true);
     };
@@ -81,6 +84,7 @@ export default function Chat() {
     socket.on("receive-message", handleReceive);
     socket.on("message-sent", handleSent);
     socket.on("message-error", handleMessageError);
+    socket.on("message-reaction-updated", handleReactionUpdated);
     socket.on("typing", handleTyping);
     socket.on("stop-typing", handleStopTyping);
 
@@ -88,6 +92,7 @@ export default function Chat() {
       socket.off("receive-message", handleReceive);
       socket.off("message-sent", handleSent);
       socket.off("message-error", handleMessageError);
+      socket.off("message-reaction-updated", handleReactionUpdated);
       socket.off("typing", handleTyping);
       socket.off("stop-typing", handleStopTyping);
     };
@@ -136,6 +141,14 @@ export default function Chat() {
     [socket, activeUser]
   );
 
+  const reactToMessage = useCallback(
+    (messageId, emoji) => {
+      if (!socket || !activeUser) return;
+      socket.emit("react-message", { messageId, emoji, otherUserId: activeUser._id });
+    },
+    [socket, activeUser]
+  );
+
   const handleTyping = () => {
     if (socket && activeUser) socket.emit("typing", { receiverId: activeUser._id });
   };
@@ -165,6 +178,7 @@ export default function Chat() {
           currentUserId={user.id}
           onSend={sendMessage}
           onSendImage={sendImage}
+          onReact={reactToMessage}
           onTyping={handleTyping}
           onStopTyping={handleStopTyping}
           isOtherTyping={isOtherTyping}

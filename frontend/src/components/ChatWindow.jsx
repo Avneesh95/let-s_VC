@@ -8,6 +8,7 @@ export default function ChatWindow({
   currentUserId,
   onSend,
   onSendImage,
+  onReact,
   onTyping,
   onStopTyping,
   isOtherTyping,
@@ -39,15 +40,20 @@ export default function ChatWindow({
 
   return (
     <div className="flex-1 flex flex-col bg-chatbg w-full">
-      <div className="flex items-center gap-3 bg-white px-4 py-3 border-b border-black/5 font-semibold">
+      <div className="flex items-center gap-3 bg-surface px-4 py-3 border-b border-line/10 font-semibold">
         <button onClick={onBack} aria-label="Back to contacts" className="md:hidden text-xl px-1">
           ←
         </button>
-        <span
-          className="w-10 h-10 rounded-full text-white font-semibold flex items-center justify-center shrink-0"
-          style={{ backgroundColor: activeUser.avatarColor }}
-        >
-          {activeUser.username[0].toUpperCase()}
+        <span className="relative shrink-0">
+          <span
+            className="w-10 h-10 rounded-full text-white font-semibold flex items-center justify-center"
+            style={{ backgroundColor: activeUser.avatarColor }}
+          >
+            {activeUser.username[0].toUpperCase()}
+          </span>
+          {isUserOnline && (
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-neon shadow-neon ring-2 ring-surface" />
+          )}
         </span>
         <span className="flex-1 truncate font-display text-ink">{activeUser.username}</span>
         <button
@@ -64,7 +70,7 @@ export default function ChatWindow({
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col">
         {messages.map((m) => (
-          <MessageBubble key={m._id} message={m} isOwn={m.sender === currentUserId} />
+          <MessageBubble key={m._id} message={m} isOwn={m.sender === currentUserId} onReact={onReact} currentUserId={currentUserId} />
         ))}
         {isOtherTyping && (
           <div className="text-sm text-ink/50 italic py-1">{activeUser.username} is typing…</div>
@@ -75,7 +81,7 @@ export default function ChatWindow({
       {isFriend ? (
         <MessageInput onSend={onSend} onSendImage={onSendImage} onTyping={onTyping} onStopTyping={onStopTyping} />
       ) : (
-        <div className="bg-white border-t border-black/5 px-4 py-4 text-center text-sm text-ink/50">
+        <div className="bg-surface border-t border-line/10 px-4 py-4 text-center text-sm text-ink/50">
           {activeUser.friendStatus === "request-sent"
             ? `Friend request sent — you can chat once ${activeUser.username} accepts.`
             : activeUser.friendStatus === "request-received"

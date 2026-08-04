@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function Home() {
   const { user, guestLogin } = useAuth();
@@ -42,7 +43,10 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-dvh bg-paper flex items-center justify-center p-4">
+    <div className="relative min-h-dvh bg-paper flex items-center justify-center p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-sm flex flex-col gap-6">
         <div className="text-center">
           <span className="font-display font-semibold text-2xl text-ink tracking-tight">
@@ -89,18 +93,18 @@ export default function Home() {
           <div className="flex-1 h-px bg-ink/10" />
         </div>
 
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5 flex flex-col gap-3 text-center">
+        <div className="bg-surface rounded-2xl p-6 shadow-sm border border-line/10 flex flex-col gap-3 text-center">
           <p className="text-sm text-ink/60">Have an account? Chat and call friends directly.</p>
           <div className="flex gap-2">
             <Link
               to="/login"
-              className="flex-1 border border-black/10 rounded-lg py-2 text-sm font-medium hover:bg-paper transition-colors"
+              className="flex-1 border border-line/15 rounded-lg py-2 text-sm font-medium hover:bg-paper transition-colors"
             >
               Log in
             </Link>
             <Link
               to="/register"
-              className="flex-1 border border-black/10 rounded-lg py-2 text-sm font-medium hover:bg-paper transition-colors"
+              className="flex-1 border border-line/15 rounded-lg py-2 text-sm font-medium hover:bg-paper transition-colors"
             >
               Register
             </Link>

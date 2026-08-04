@@ -3,8 +3,29 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Light theme (default) — values as R G B triplets so Tailwind's
+       <alpha-value> opacity modifiers (e.g. text-ink/50) work correctly. */
+    --color-paper: 246 245 241; /* #F6F5F1 */
+    --color-ink: 20 23 31; /* #14171F */
+    --color-surface: 255 255 255; /* #FFFFFF */
+    --color-line: 0 0 0; /* used with low alpha, e.g. border-line/10 */
+    --color-chatbg: 239 238 233; /* #EFEEE9 */
+    --color-bubble-own: 220 238 231; /* #DCEEE7 */
+  }
+
+  .dark {
+    --color-paper: 11 13 18; /* near-black */
+    --color-ink: 240 240 237; /* near-white */
+    --color-surface: 23 26 33;
+    --color-line: 255 255 255;
+    --color-chatbg: 15 18 24;
+    --color-bubble-own: 20 46 40; /* dim emerald-tinted bubble */
+  }
+
   body {
     font-family: Inter, system-ui, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
   h1, h2, h3 {
     font-family: "Space Grotesk", sans-serif;

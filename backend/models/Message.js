@@ -7,6 +7,15 @@ const messageSchema = new mongoose.Schema(
     type: { type: String, enum: ["text", "image"], default: "text" },
     text: { type: String, trim: true, default: "" },
     mediaUrl: { type: String, default: null },
+    // One reaction per user per message (tapping the same emoji again
+    // removes it, tapping a different one switches it) — matches how
+    // most chat apps handle this rather than allowing unlimited stacking.
+    reactions: [
+      {
+        emoji: { type: String, required: true },
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+      },
+    ],
   },
   { timestamps: true }
 );
