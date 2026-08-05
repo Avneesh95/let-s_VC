@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import generateRoomCode from "../utils/generateRoomCode";
 import ThemeToggle from "./ThemeToggle";
+import Avatar from "./Avatar";
+import SettingsModal from "./SettingsModal";
 
 function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
   if (user.friendStatus === "friends") {
@@ -58,12 +60,7 @@ function ChatRow({ u, isActive, onSelect }) {
         isActive ? "bg-paper" : ""
       }`}
     >
-      <span
-        className="w-10 h-10 rounded-full text-white font-semibold flex items-center justify-center shrink-0"
-        style={{ backgroundColor: u.avatarColor }}
-      >
-        {u.username[0].toUpperCase()}
-      </span>
+      <Avatar user={u} />
       <span className="flex flex-col min-w-0 flex-1">
         <span className="font-medium text-ink truncate">{u.username}</span>
       </span>
@@ -83,12 +80,7 @@ function PersonCard({ u, onOpenChat, onAddFriend, onAcceptRequest, onRejectReque
         clickable ? "cursor-pointer hover:border-brand/40 hover:shadow-sm" : ""
       } transition-all`}
     >
-      <span
-        className="w-11 h-11 rounded-full text-white font-semibold flex items-center justify-center shrink-0"
-        style={{ backgroundColor: u.avatarColor }}
-      >
-        {u.username[0].toUpperCase()}
-      </span>
+      <Avatar user={u} size="w-11 h-11" />
       <span className="flex-1 min-w-0">
         <span className="font-medium text-ink truncate block">{u.username}</span>
       </span>
@@ -117,6 +109,7 @@ export default function Sidebar({
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState("");
   const [tab, setTab] = useState("chats"); // "chats" | "find"
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const friends = userList.filter((u) => u.friendStatus === "friends");
   const pendingReceivedCount = userList.filter((u) => u.friendStatus === "request-received").length;
@@ -153,15 +146,16 @@ export default function Sidebar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line/10">
-        <span
-          className="w-8 h-8 rounded-full text-white text-sm font-semibold flex items-center justify-center shrink-0"
-          style={{ backgroundColor: currentUser.avatarColor || "#1F6F5C" }}
-        >
-          {currentUser.username[0].toUpperCase()}
+      <button
+        onClick={() => setSettingsOpen(true)}
+        className="flex items-center gap-2 px-4 py-2.5 border-b border-line/10 hover:bg-paper transition-colors text-left"
+      >
+        <Avatar user={currentUser} size="w-8 h-8" />
+        <span className="text-sm font-medium text-ink truncate flex-1">{currentUser.username}</span>
+        <span className="text-ink/30 text-sm" title="Settings">
+          ⚙️
         </span>
-        <span className="text-sm font-medium text-ink truncate">{currentUser.username}</span>
-      </div>
+      </button>
 
       <div className="px-4 py-3 border-b border-line/10 flex flex-col gap-2 bg-paper/60">
         <button
@@ -248,6 +242,8 @@ export default function Sidebar({
           )}
         </div>
       )}
+
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </aside>
   );
 }

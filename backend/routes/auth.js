@@ -26,7 +26,13 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({
       token: generateToken(user._id),
-      user: { id: user._id, username: user.username, email: user.email },
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        avatarColor: user.avatarColor,
+        avatarUrl: user.avatarUrl,
+      },
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
@@ -45,7 +51,13 @@ router.post("/login", async (req, res) => {
 
     res.json({
       token: generateToken(user._id),
-      user: { id: user._id, username: user.username, email: user.email },
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        avatarColor: user.avatarColor,
+        avatarUrl: user.avatarUrl,
+      },
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });

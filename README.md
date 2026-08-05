@@ -14,6 +14,9 @@ decision (and why) is the most interesting thing to talk about in this project.
 - 1-on-1 real-time messaging via Socket.IO, with image sharing, message reactions
   (one per person per message, toggle to remove), typing indicators, online presence
 - Light/dark mode, persisted and defaulting to system preference
+- Profile settings: change username, change password, upload a profile picture
+- Ringtone on incoming calls (and a softer ringback for the caller while waiting) —
+  synthesized in-browser via the Web Audio API, no audio file to host
 - Screen sharing during any call — swaps the outgoing video track live, no renegotiation
 - Video calling — 1-1 calls and group calls (up to 6 people) share **one** implementation
   (see Architecture below)
@@ -158,6 +161,15 @@ npm run dev
    and Vercel/Netlify both provide this by default
 
 ## Talking points for interviews
+- **The ringtone is synthesized, not an audio file** — two sine-wave oscillators via the
+  Web Audio API, played in a timed pattern. No asset to host, load, or keep in sync with
+  deploys. The honest caveat: browsers block audio without a prior user gesture on that
+  page visit, so a genuinely cold page load with zero interaction could occasionally miss
+  the first ring — acceptable for this project, worth knowing as a real constraint.
+- **The 1-1 self-view PiP intentionally differs from the group grid tiles** — narrower,
+  portrait-oriented, and unlabeled, matching how WhatsApp's own 1-1 call UI looks, while
+  group tiles stay landscape and labeled since telling multiple people apart matters more
+  there than in a 2-person call.
 - **The Chats/Find People split** is worth mentioning as a UX decision, not just a code
   change — conflating "everyone" and "people you talk to" into one list is a common mistake
   in early chat-app builds, and separating them is what most production apps actually do.

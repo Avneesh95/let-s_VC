@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useSocket } from "./SocketContext";
 import generateRoomCode from "../utils/generateRoomCode";
 import { requestNotificationPermission, showNotification } from "../utils/notifications";
+import { startRingtone, stopRingtone } from "../utils/ringtone";
 
 const CallInviteContext = createContext(null);
 
@@ -29,6 +30,7 @@ export function CallInviteProvider({ children }) {
 
     const handleInvite = ({ from, roomCode, callerName }) => {
       setIncomingInvite({ from, roomCode, callerName });
+      startRingtone();
 
       // Only bother with an OS-level notification if they're not already
       // looking at the tab — the in-app banner already covers that case,
@@ -75,6 +77,7 @@ export function CallInviteProvider({ children }) {
   const acceptInvite = () => {
     if (!incomingInvite) return;
     closeActiveNotification();
+    stopRingtone();
     socket.emit("call-invite-response", {
       to: incomingInvite.from,
       roomCode: incomingInvite.roomCode,
@@ -91,6 +94,7 @@ export function CallInviteProvider({ children }) {
   const declineInvite = () => {
     if (!incomingInvite) return;
     closeActiveNotification();
+    stopRingtone();
     socket.emit("call-invite-response", {
       to: incomingInvite.from,
       roomCode: incomingInvite.roomCode,

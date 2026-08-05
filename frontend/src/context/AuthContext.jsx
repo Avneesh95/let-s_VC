@@ -36,8 +36,20 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Merges profile changes (new username, new avatar) into the stored
+  // user object — used after settings updates so the change reflects
+  // immediately everywhere the user's own identity is shown, without
+  // needing a full re-login.
+  const updateUser = (partial) => {
+    setUser((prev) => {
+      const next = { ...prev, ...partial };
+      localStorage.setItem("user", JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, register, guestLogin, logout }}>
+    <AuthContext.Provider value={{ user, login, register, guestLogin, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

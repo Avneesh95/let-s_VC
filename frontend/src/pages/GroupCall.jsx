@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
+import { startRingback, stopRingtone } from "../utils/ringtone";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
@@ -76,7 +77,7 @@ function DraggableSelfView({ children, widthClass }) {
   );
 }
 
-function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
+function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portrait }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -90,7 +91,9 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
       className={
         fullSize
           ? "relative w-full h-full bg-black overflow-hidden flex items-center justify-center"
-          : "relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center ring-1 ring-white/10"
+          : `relative bg-black rounded-xl overflow-hidden ${
+              portrait ? "aspect-[3/4]" : "aspect-video"
+            } flex items-center justify-center ring-1 ring-white/10`
       }
     >
       {stream ? (
@@ -117,9 +120,11 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored }) {
           📷🚫
         </div>
       )}
-      <span className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-0.5 rounded-md">
-        {label}
-      </span>
+      {label && (
+        <span className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-0.5 rounded-md">
+          {label}
+        </span>
+      )}
     </div>
   );
 }
@@ -174,6 +179,20 @@ export default function GroupCall() {
   // userId -> { username, stream }
   const [participants, setParticipants] = useState({});
   const [error, setError] = useState("");
+
+  // Ringback tone (the caller's-side "brrring... brrring" while waiting)
+  // — only for direct 1-1 calls, only while genuinely alone waiting, and
+  // stopped the moment someone joins, the call errors out, or this page
+  // is left.
+  useEffect(() => {
+    const stillAlone = Object.keys(participants).length === 0;
+    if (isDirectCall && stillAlone && !error) {
+      startRingback();
+    } else {
+      stopRingtone();
+    }
+    return () => stopRingtone();
+  }, [isDirectCall, participants, error]);
   const [facingMode, setFacingMode] = useState("user");
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -636,7 +655,7 @@ export default function GroupCall() {
             <>
               <VideoTile
                 stream={localStream}
-                label={`${user.username} (You)`}
+                label={isDirectCall ? null : `${user.username} (You)`}
                 muted
                 fullSize
                 cameraOff={!isCameraOn}
@@ -671,13 +690,14 @@ export default function GroupCall() {
                 label={otherParticipants[0][1].username}
                 fullSize
               />
-              <DraggableSelfView widthClass="w-24 md:w-40">
+              <DraggableSelfView widthClass={isDirectCall ? "w-20 md:w-28" : "w-28 md:w-40"}>
                 <VideoTile
                   stream={localStream}
-                  label={`${user.username} (You)`}
+                  label={isDirectCall ? null : `${user.username} (You)`}
                   muted
                   cameraOff={!isCameraOn}
                   mirrored={facingMode === "user" && !isScreenSharing}
+                  portrait={isDirectCall}
                 />
               </DraggableSelfView>
             </>
