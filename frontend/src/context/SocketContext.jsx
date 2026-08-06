@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 const SocketContext = createContext(null);
 
 export function SocketProvider({ children }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
 
@@ -16,9 +16,14 @@ export function SocketProvider({ children }) {
       return;
     }
 
-    const token = localStorage.getItem("token");
     const newSocket = io(import.meta.env.VITE_API_URL, {
-      auth: { token },
+      // A function, not a static object — Socket.IO calls this fresh on
+      // every connection AND every automatic reconnection attempt. With a
+      // static `{ token }` value, reconnection attempts kept resending
+      // whatever token existed when the socket was first created, which
+      // silently broke reconnection the moment that original token expired
+      // or a new one was issued, even though localStorage had a valid one.
+      auth: (cb) => cb({ token: localStorage.getItem("token") }),
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
@@ -26,6 +31,20 @@ export function SocketProvider({ children }) {
     });
 
     newSocket.on("online-users", (ids) => setOnlineUsers(ids));
+
+    // If the server rejects the handshake specifically because the token
+    // is invalid/expired (not a network blip — those show up as generic
+    // "xhr poll error" / "timeout" messages instead), there's no point
+    // retrying forever with a token that will never work. Log out cleanly
+    // so the person lands back on the login screen instead of sitting in
+    // a broken half-connected state with silently-failing requests.
+    newSocket.on("connect_error", (err) => {
+      console.error("Socket connection error:", err.message);
+      if (err.message === "Invalid token" || err.message === "No token provided") {
+        newSocket.disconnect();
+        logout();
+      }
+    });
 
     setSocket(newSocket);
 
