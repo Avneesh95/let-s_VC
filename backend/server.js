@@ -53,6 +53,10 @@ const corsOptions = {
 
 const io = new Server(server, {
   cors: { origin: allowedOrigins, credentials: true },
+  // Matches the client's transports restriction — see the comment in
+  // frontend/src/context/SocketContext.jsx for why WebSocket upgrade was
+  // disabled in favor of staying on HTTP long-polling.
+  transports: ["polling"],
   // More tolerant of brief WiFi drops (e.g. phone screen lock, laptop sleep)
   // so presence doesn't flicker offline/online from a momentary blip.
   pingTimeout: 60000,

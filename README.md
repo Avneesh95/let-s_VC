@@ -161,6 +161,14 @@ npm run dev
    and Vercel/Netlify both provide this by default
 
 ## Talking points for interviews
+- **Why polling instead of WebSocket transport?** Socket.IO normally starts on HTTP
+  long-polling and upgrades to a raw WebSocket once connected. On some hosting setups,
+  that upgrade step specifically fails even though the underlying connection is fine — the
+  giveaway is a session ID already present in a failing WebSocket URL, meaning the initial
+  handshake succeeded and only the upgrade didn't. Staying on polling only trades a little
+  latency for working reliably everywhere a plain HTTP request does, which matters more for
+  a project other people will actually try to run than shaving milliseconds off message
+  delivery.
 - **The ringtone is synthesized, not an audio file** — two sine-wave oscillators via the
   Web Audio API, played in a timed pattern. No asset to host, load, or keep in sync with
   deploys. The honest caveat: browsers block audio without a prior user gesture on that

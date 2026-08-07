@@ -24,6 +24,14 @@ export function SocketProvider({ children }) {
       // silently broke reconnection the moment that original token expired
       // or a new one was issued, even though localStorage had a valid one.
       auth: (cb) => cb({ token: localStorage.getItem("token") }),
+      // Stay on HTTP long-polling instead of upgrading to a raw WebSocket.
+      // The failure signature we kept hitting — a session ID already
+      // present in the URL, meaning the initial handshake succeeded, but
+      // the *upgrade* to WebSocket specifically failing right after —
+      // points at the hosting platform's proxy not reliably supporting
+      // that upgrade, not an application bug. Polling is a little less
+      // efficient but works reliably anywhere a plain HTTP request does.
+      transports: ["polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
