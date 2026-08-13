@@ -29,8 +29,21 @@
 
   body {
     font-family: Inter, system-ui, sans-serif;
+    /* Without this, elements that don't set an explicit text color (plain
+       <input>s especially) fall back to the browser's default black text —
+       invisible against a dark-mode background. Setting it here means it's
+       inherited everywhere by default, and any component can still opt out
+       with its own text-* class. */
+    color: rgb(var(--color-ink));
+    background-color: rgb(var(--color-paper));
     transition: background-color 0.2s ease, color 0.2s ease;
     font-feature-settings: "ss01" 1, "cv01" 1;
+  }
+  input, textarea, select {
+    color: inherit;
+  }
+  ::placeholder {
+    color: rgb(var(--color-ink) / 0.35);
   }
   h1, h2, h3 {
     font-family: "Space Grotesk", sans-serif;

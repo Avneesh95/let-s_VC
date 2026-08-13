@@ -596,7 +596,7 @@ export default function GroupCall() {
             onChange={(e) => setGuestName(e.target.value)}
             maxLength={30}
             autoFocus
-            className="rounded-lg px-3 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-light mt-1"
+            className="rounded-lg px-3 py-2.5 text-sm text-callbg bg-white placeholder:text-callbg/40 focus:outline-none focus:ring-2 focus:ring-brand-light mt-1"
           />
           {guestError && <p className="text-xs bg-danger/60 rounded px-2 py-1.5">{guestError}</p>}
           <button
@@ -846,7 +846,7 @@ export default function GroupCall() {
           onClick={toggleMic}
           title={isMicOn ? "Mute mic" : "Unmute mic"}
           className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
-            isMicOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-ink"
+            isMicOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-callbg"
           }`}
         >
           {isMicOn ? <Mic className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} /> : <MicOff className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />}
@@ -855,7 +855,7 @@ export default function GroupCall() {
           onClick={toggleCamera}
           title={isCameraOn ? "Turn off camera" : "Turn on camera"}
           className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
-            isCameraOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-ink"
+            isCameraOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-callbg"
           }`}
         >
           {isCameraOn ? <VideoIcon className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} /> : <VideoOff className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />}

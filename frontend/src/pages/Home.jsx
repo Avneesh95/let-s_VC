@@ -74,7 +74,7 @@ export default function Home() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={30}
-              className="rounded-xl px-3 py-2.75 text-sm text-ink bg-white/95 focus:outline-none focus:ring-2 focus:ring-gold/60 transition-shadow"
+              className="rounded-xl px-3 py-2.75 text-sm text-callbg bg-white/95 placeholder:text-callbg/40 focus:outline-none focus:ring-2 focus:ring-gold/60 transition-shadow"
             />
             <input
               type="text"
@@ -82,7 +82,7 @@ export default function Home() {
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value)}
               maxLength={6}
-              className="rounded-xl px-3 py-2.75 text-sm text-ink bg-white/95 uppercase tracking-widest font-display focus:outline-none focus:ring-2 focus:ring-gold/60 transition-shadow"
+              className="rounded-xl px-3 py-2.75 text-sm text-callbg bg-white/95 placeholder:text-callbg/40 uppercase tracking-widest font-display focus:outline-none focus:ring-2 focus:ring-gold/60 transition-shadow"
             />
             {error && (
               <p className="text-xs bg-danger/70 rounded-lg px-2.5 py-1.5">{error}</p>
