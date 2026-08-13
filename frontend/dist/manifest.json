@@ -1,6 +1,6 @@
 {
-  "name": "ChatApp",
-  "short_name": "ChatApp",
+  "name": "Peerly",
+  "short_name": "Peerly",
   "description": "Real-time chat and video calling.",
   "start_url": "/",
   "scope": "/",

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Smile } from "lucide-react";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -29,16 +30,18 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
     <div className={`flex mb-4 ${isOwn ? "justify-end" : "justify-start"} group relative`}>
       <div className={`flex items-end gap-1 ${isOwn ? "flex-row-reverse" : ""}`}>
         <div
-          className={`max-w-[78%] md:max-w-[60%] rounded-2xl px-3 py-2 relative shadow-sm ${
-            isOwn ? "bg-bubbleOwn rounded-br-md" : "bg-surface rounded-bl-md"
+          className={`max-w-[78%] md:max-w-[60%] rounded-2xl px-3.5 py-2.5 relative shadow-sm ${
+            isOwn
+              ? "bg-bubbleOwn rounded-br-md ring-1 ring-brand/10"
+              : "bg-surface rounded-bl-md ring-1 ring-line/5"
           } ${message.type === "image" ? "p-1" : ""}`}
         >
           {message.type === "image" ? (
-            <img src={message.mediaUrl} alt="shared" className="max-w-[240px] max-h-[240px] rounded-md block" />
+            <img src={message.mediaUrl} alt="shared" className="max-w-[240px] max-h-[240px] rounded-lg block" />
           ) : (
-            <p className="text-sm break-words">{message.text}</p>
+            <p className="text-sm break-words text-ink">{message.text}</p>
           )}
-          <span className="block text-[10px] text-ink/30 text-right mt-0.5">{time}</span>
+          <span className="block text-[10px] text-ink/35 text-right mt-0.5">{time}</span>
 
           {Object.keys(grouped).length > 0 && (
             <div className={`absolute -bottom-3 ${isOwn ? "right-2" : "left-2"} flex gap-1`}>
@@ -64,16 +67,16 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
         <div className="relative opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => setPickerOpen((v) => !v)}
-            className="text-xs w-6 h-6 rounded-full hover:bg-ink/5 flex items-center justify-center"
+            className="w-6 h-6 rounded-full hover:bg-ink/5 flex items-center justify-center text-ink/40"
             title="React"
           >
-            🙂
+            <Smile className="w-3.5 h-3.5" strokeWidth={1.75} />
           </button>
           {pickerOpen && (
             <div
               className={`absolute z-10 bottom-7 ${
                 isOwn ? "right-0" : "left-0"
-              } bg-surface border border-line/10 rounded-full shadow-md px-2 py-1 flex gap-1`}
+              } bg-surface border border-line/10 rounded-full shadow-premium px-2 py-1 flex gap-1`}
             >
               {REACTION_EMOJIS.map((emoji) => (
                 <button

@@ -4,28 +4,33 @@
 
 @layer base {
   :root {
-    /* Light theme (default) — values as R G B triplets so Tailwind's
-       <alpha-value> opacity modifiers (e.g. text-ink/50) work correctly. */
-    --color-paper: 246 245 241; /* #F6F5F1 */
-    --color-ink: 20 23 31; /* #14171F */
+    /* Light theme (default) — a warm ivory rather than flat white, so
+       surfaces read as considered paper stock, not default browser white.
+       Values as R G B triplets so Tailwind's <alpha-value> opacity
+       modifiers (e.g. text-ink/50) work correctly. */
+    --color-paper: 250 248 244; /* #FAF8F4 */
+    --color-ink: 22 25 22; /* #161916 */
     --color-surface: 255 255 255; /* #FFFFFF */
     --color-line: 0 0 0; /* used with low alpha, e.g. border-line/10 */
-    --color-chatbg: 239 238 233; /* #EFEEE9 */
-    --color-bubble-own: 220 238 231; /* #DCEEE7 */
+    --color-chatbg: 244 241 234; /* #F4F1EA */
+    --color-bubble-own: 219 234 226; /* #DBEAE2 */
   }
 
   .dark {
-    --color-paper: 11 13 18; /* near-black */
-    --color-ink: 240 240 237; /* near-white */
-    --color-surface: 23 26 33;
+    /* Dark theme — a near-black with a faint green undertone so it sits
+       naturally with the emerald brand instead of a neutral gray-black. */
+    --color-paper: 9 11 10; /* #090B0A */
+    --color-ink: 238 236 228; /* #EEECE4 */
+    --color-surface: 19 22 20; /* #131614 */
     --color-line: 255 255 255;
-    --color-chatbg: 15 18 24;
-    --color-bubble-own: 20 46 40; /* dim emerald-tinted bubble */
+    --color-chatbg: 12 14 13;
+    --color-bubble-own: 21 41 34; /* dim emerald-tinted bubble */
   }
 
   body {
     font-family: Inter, system-ui, sans-serif;
     transition: background-color 0.2s ease, color 0.2s ease;
+    font-feature-settings: "ss01" 1, "cv01" 1;
   }
   h1, h2, h3 {
     font-family: "Space Grotesk", sans-serif;
@@ -33,8 +38,9 @@
   /* Visible keyboard focus everywhere, not just the browser default (which
      Tailwind's reset otherwise suppresses on some elements) */
   :focus-visible {
-    outline: 2px solid #1F6F5C;
+    outline: 2px solid #23997a;
     outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 
@@ -57,6 +63,19 @@
     background: transparent;
   }
 
+  /* A near-invisible film grain, used at very low opacity behind auth/hero
+     surfaces so a flat gradient doesn't look like a default CSS blob —
+     the kind of texture a print-conscious brand would reach for. */
+  .bg-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Thin gradient hairline, used as a top border on premium cards instead
+     of a flat 1px line — a small signature that recurs across the app. */
+  .rule-gold {
+    background: linear-gradient(90deg, transparent, #c9a24b 50%, transparent);
+  }
+
   @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -65,10 +84,17 @@
     from { opacity: 0; transform: scale(0.96) translateY(4px); }
     to { opacity: 1; transform: scale(1) translateY(0); }
   }
+  @keyframes floatSlow {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(-2%, 3%); }
+  }
   .animate-fade-in {
     animation: fadeIn 0.2s ease-out;
   }
   .animate-scale-in {
     animation: scaleIn 0.18s ease-out;
+  }
+  .animate-float-slow {
+    animation: floatSlow 12s ease-in-out infinite;
   }
 }

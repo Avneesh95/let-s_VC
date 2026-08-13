@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { X, Camera, BellRing } from "lucide-react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { enableCallPush, disableCallPush, getExistingPushSubscription, isPushSupported } from "../utils/push";
@@ -104,12 +105,12 @@ export default function SettingsModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[90] p-4">
-      <div className="bg-surface rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/55 backdrop-blur-[2px] flex items-center justify-center z-[90] p-4">
+      <div className="bg-surface rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto thin-scrollbar shadow-premium-lg border border-line/10">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line/10">
           <h2 className="font-display font-semibold text-lg text-ink">Settings</h2>
-          <button onClick={onClose} className="text-ink/40 hover:text-ink text-xl leading-none">
-            ✕
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center text-ink/40 hover:text-ink hover:bg-ink/5 transition-colors">
+            <X className="w-4.5 h-4.5" strokeWidth={1.75} />
           </button>
         </div>
 
@@ -119,20 +120,21 @@ export default function SettingsModal({ onClose }) {
             <button
               onClick={() => fileInputRef.current.click()}
               disabled={avatarUploading}
-              className="relative w-20 h-20 rounded-full overflow-hidden group"
+              className="relative w-20 h-20 rounded-full overflow-hidden group ring-2 ring-gold/40"
               title="Change profile picture"
             >
               {user.avatarUrl ? (
                 <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <span
-                  className="w-full h-full flex items-center justify-center text-white text-2xl font-semibold"
-                  style={{ backgroundColor: user.avatarColor || "#1F6F5C" }}
+                  className="w-full h-full flex items-center justify-center text-white text-2xl font-display font-semibold"
+                  style={{ backgroundColor: user.avatarColor || "#0F6B52" }}
                 >
                   {user.username[0].toUpperCase()}
                 </span>
               )}
-              <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs">
+              <span className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5 text-white text-xs">
+                <Camera className="w-4 h-4" strokeWidth={1.75} />
                 {avatarUploading ? "Uploading…" : "Change"}
               </span>
             </button>
@@ -154,18 +156,18 @@ export default function SettingsModal({ onClose }) {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="flex-1 border border-line/15 rounded-lg px-3 py-2 text-sm bg-paper focus:outline-none focus:ring-2 focus:ring-brand/40"
+                className="flex-1 border border-line/15 rounded-xl px-3 py-2 text-sm bg-paper focus:outline-none focus:ring-2 focus:ring-brand/35"
               />
               <button
                 type="submit"
                 disabled={usernameSaving || !username.trim() || username.trim() === user.username}
-                className="bg-brand hover:bg-brand-dark transition-colors text-white text-sm font-semibold rounded-lg px-4 disabled:opacity-50"
+                className="bg-brand hover:bg-brand-dark transition-colors text-white text-sm font-semibold rounded-xl px-4 disabled:opacity-50"
               >
                 Save
               </button>
             </div>
             {usernameStatus && (
-              <p className={`text-xs ${usernameStatus === "Saved" ? "text-brand" : "text-danger"}`}>
+              <p className={`text-xs ${usernameStatus === "Saved" ? "text-brand dark:text-brand-light" : "text-danger"}`}>
                 {usernameStatus}
               </p>
             )}
@@ -179,7 +181,7 @@ export default function SettingsModal({ onClose }) {
               placeholder="Current password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="border border-line/15 rounded-lg px-3 py-2 text-sm bg-paper focus:outline-none focus:ring-2 focus:ring-brand/40"
+              className="border border-line/15 rounded-xl px-3 py-2 text-sm bg-paper focus:outline-none focus:ring-2 focus:ring-brand/35"
             />
             <input
               type="password"
@@ -187,17 +189,17 @@ export default function SettingsModal({ onClose }) {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               minLength={6}
-              className="border border-line/15 rounded-lg px-3 py-2 text-sm bg-paper focus:outline-none focus:ring-2 focus:ring-brand/40"
+              className="border border-line/15 rounded-xl px-3 py-2 text-sm bg-paper focus:outline-none focus:ring-2 focus:ring-brand/35"
             />
             <button
               type="submit"
               disabled={passwordSaving || !currentPassword || newPassword.length < 6}
-              className="bg-brand hover:bg-brand-dark transition-colors text-white text-sm font-semibold rounded-lg py-2 disabled:opacity-50"
+              className="bg-brand hover:bg-brand-dark transition-colors text-white text-sm font-semibold rounded-xl py-2 disabled:opacity-50"
             >
               Update password
             </button>
             {passwordStatus && (
-              <p className={`text-xs ${passwordStatus === "Password updated" ? "text-brand" : "text-danger"}`}>
+              <p className={`text-xs ${passwordStatus === "Password updated" ? "text-brand dark:text-brand-light" : "text-danger"}`}>
                 {passwordStatus}
               </p>
             )}
@@ -207,11 +209,16 @@ export default function SettingsModal({ onClose }) {
           {pushState !== "unsupported" && (
             <div className="flex flex-col gap-2 pt-1 border-t border-line/10">
               <div className="flex items-center justify-between pt-4">
-                <div>
-                  <p className="text-sm font-medium text-ink">Ring when app is closed</p>
-                  <p className="text-xs text-ink/50 mt-0.5">
-                    Get a call notification on this device even when the app isn't open.
-                  </p>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-8 h-8 rounded-full bg-brand/10 text-brand dark:text-brand-light flex items-center justify-center shrink-0 mt-0.5">
+                    <BellRing className="w-4 h-4" strokeWidth={1.75} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-ink">Ring when app is closed</p>
+                    <p className="text-xs text-ink/50 mt-0.5">
+                      Get a call notification on this device even when the app isn't open.
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={handlePushToggle}
