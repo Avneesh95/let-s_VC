@@ -4,6 +4,7 @@ import generateRoomCode from "../utils/generateRoomCode";
 import ThemeToggle from "./ThemeToggle";
 import Avatar from "./Avatar";
 import SettingsModal from "./SettingsModal";
+import Logo from "./Logo";
 
 function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectRequest }) {
   if (user.friendStatus === "friends") {
@@ -132,9 +133,7 @@ export default function Sidebar({
   return (
     <aside className="w-full md:w-[300px] bg-surface border-r border-line/10 flex flex-col shrink-0">
       <div className="px-4 py-3 border-b border-line/10 flex items-center justify-between">
-        <span className="font-display font-semibold text-ink">
-          chat<span className="text-brand">/</span>app
-        </span>
+        <Logo size="sm" />
         <div className="flex items-center gap-1">
           <ThemeToggle />
           <button

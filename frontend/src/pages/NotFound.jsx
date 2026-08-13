@@ -1,12 +1,11 @@
 import { Link } from "react-router-dom";
+import Logo from "../components/Logo";
 
 export default function NotFound() {
   return (
     <div className="h-dvh flex items-center justify-center bg-paper px-4">
       <div className="text-center flex flex-col items-center gap-3">
-        <span className="font-display font-semibold text-2xl text-ink tracking-tight">
-          chat<span className="text-brand">/</span>app
-        </span>
+        <Logo size="md" />
         <p className="text-ink/60 text-sm">That page doesn't exist.</p>
         <Link
           to="/"

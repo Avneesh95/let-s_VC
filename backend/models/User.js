@@ -8,6 +8,18 @@ const userSchema = new mongoose.Schema(
     avatarColor: { type: String, default: "#4f46e5" }, // fallback initial-circle color if no photo
     avatarUrl: { type: String, default: null }, // uploaded profile picture, takes priority if set
     friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // One entry per device/browser that has enabled "ring when app is
+    // closed". Structure matches the PushSubscription object the browser
+    // hands back from pushManager.subscribe() — endpoint + encryption keys.
+    pushSubscriptions: [
+      {
+        endpoint: { type: String, required: true },
+        keys: {
+          p256dh: { type: String, required: true },
+          auth: { type: String, required: true },
+        },
+      },
+    ],
   },
   { timestamps: true }
 );

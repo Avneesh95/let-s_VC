@@ -1,13 +1,16 @@
-// Thin wrapper around the browser Notification API — no service worker,
-// so no interactive action buttons on the notification itself (that
-// requires a registered service worker), but simple and enough to alert
-// someone that a call is coming in when they're not looking at the tab.
+// Thin wrapper around the browser Notification API, used for the
+// foreground/backgrounded-but-open-tab case (an in-page Notification with
+// no service worker involved — simple and immediate). The fully-closed-app
+// case is handled separately by Web Push + the service worker's own
+// showNotification call in public/sw.js, which is what supports the
+// Answer/Decline action buttons.
 
-export function requestNotificationPermission() {
-  if (!("Notification" in window)) return;
+export async function requestNotificationPermission() {
+  if (!("Notification" in window)) return "unsupported";
   if (Notification.permission === "default") {
-    Notification.requestPermission();
+    return Notification.requestPermission();
   }
+  return Notification.permission;
 }
 
 export function showNotification(title, options) {

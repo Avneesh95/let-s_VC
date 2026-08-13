@@ -120,4 +120,43 @@ router.post("/me/avatar", protect, upload.single("avatar"), async (req, res) => 
   }
 });
 
+// @route  POST /api/users/me/push-subscription
+// @desc   Register a Web Push subscription for this device, so incoming
+//         calls can still surface a notification when the app is fully
+//         closed (not just backgrounded). A user can have several — one
+//         per device/browser they've enabled this on.
+router.post("/me/push-subscription", protect, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return res.status(400).json({ message: "Invalid push subscription" });
+    }
+
+    await User.findByIdAndUpdate(req.userId, {
+      $pull: { pushSubscriptions: { endpoint: subscription.endpoint } },
+    });
+    await User.findByIdAndUpdate(req.userId, {
+      $push: { pushSubscriptions: subscription },
+    });
+
+    res.status(201).json({ message: "Subscribed" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// @route  DELETE /api/users/me/push-subscription
+// @desc   Remove a push subscription (e.g. user turned the toggle off)
+router.delete("/me/push-subscription", protect, async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (!endpoint) return res.status(400).json({ message: "endpoint is required" });
+
+    await User.findByIdAndUpdate(req.userId, { $pull: { pushSubscriptions: { endpoint } } });
+    res.json({ message: "Unsubscribed" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 module.exports = router;

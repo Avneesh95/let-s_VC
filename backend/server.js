@@ -12,6 +12,7 @@ const userRoutes = require("./routes/users");
 const messageRoutes = require("./routes/messages");
 const uploadRoutes = require("./routes/upload");
 const friendRoutes = require("./routes/friends");
+const pushRoutes = require("./routes/push");
 
 // Fail fast on boot if required config is missing, rather than starting
 // successfully and then failing confusingly on the first request that
@@ -82,6 +83,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/friends", friendRoutes);
+app.use("/api/push", pushRoutes);
 
 app.get("/", (req, res) => res.send("Chat API is running"));
 
@@ -96,6 +98,14 @@ app.use("/api", (req, res) => {
 // leaking a stack trace to the client.
 app.use((err, req, res, next) => {
   console.error(err);
+
+  // A malformed :id param (e.g. a guest's non-ObjectId token id hitting a
+  // route that expects a real Mongo user) throws a Mongoose CastError with
+  // a technical message — surface a clean 400 instead of leaking it.
+  if (err.name === "CastError") {
+    return res.status(400).json({ message: "Invalid ID" });
+  }
+
   res.status(err.status || 500).json({ message: err.message || "Server error" });
 });
 

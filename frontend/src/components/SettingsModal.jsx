@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { enableCallPush, disableCallPush, getExistingPushSubscription, isPushSupported } from "../utils/push";
 
 export default function SettingsModal({ onClose }) {
   const { user, updateUser } = useAuth();
@@ -17,6 +18,38 @@ export default function SettingsModal({ onClose }) {
 
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState("");
+
+  // "checking" while we ask the service worker whether a subscription
+  // already exists, so the toggle doesn't flash "off" then "on" on open.
+  const [pushState, setPushState] = useState("checking"); // checking | on | off | unsupported
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState("");
+
+  useEffect(() => {
+    if (!isPushSupported()) {
+      setPushState("unsupported");
+      return;
+    }
+    getExistingPushSubscription().then((sub) => setPushState(sub ? "on" : "off"));
+  }, []);
+
+  const handlePushToggle = async () => {
+    setPushBusy(true);
+    setPushError("");
+    try {
+      if (pushState === "on") {
+        await disableCallPush();
+        setPushState("off");
+      } else {
+        await enableCallPush();
+        setPushState("on");
+      }
+    } catch (err) {
+      setPushError(err.message || "Couldn't update notification settings");
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const handleUsernameSave = async (e) => {
     e.preventDefault();
@@ -169,6 +202,40 @@ export default function SettingsModal({ onClose }) {
               </p>
             )}
           </form>
+
+          {/* Background call notifications */}
+          {pushState !== "unsupported" && (
+            <div className="flex flex-col gap-2 pt-1 border-t border-line/10">
+              <div className="flex items-center justify-between pt-4">
+                <div>
+                  <p className="text-sm font-medium text-ink">Ring when app is closed</p>
+                  <p className="text-xs text-ink/50 mt-0.5">
+                    Get a call notification on this device even when the app isn't open.
+                  </p>
+                </div>
+                <button
+                  onClick={handlePushToggle}
+                  disabled={pushState === "checking" || pushBusy}
+                  role="switch"
+                  aria-checked={pushState === "on"}
+                  className={`shrink-0 w-11 h-6 rounded-full relative transition-colors disabled:opacity-50 ${
+                    pushState === "on" ? "bg-brand" : "bg-ink/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      pushState === "on" ? "translate-x-[22px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              {pushError && <p className="text-xs text-danger">{pushError}</p>}
+              <p className="text-[11px] text-ink/35 leading-relaxed">
+                Note: a fully closed app can't play a continuous ringtone — you'll get a
+                system notification with Answer/Decline instead.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

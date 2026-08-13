@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSocket } from "./SocketContext";
+import { useAuth } from "./AuthContext";
 import generateRoomCode from "../utils/generateRoomCode";
 import { requestNotificationPermission, showNotification } from "../utils/notifications";
 import { startRingtone, stopRingtone } from "../utils/ringtone";
+import { enableCallPush, getExistingPushSubscription, isPushSupported } from "../utils/push";
 
 const CallInviteContext = createContext(null);
 
@@ -13,23 +15,35 @@ const CallInviteContext = createContext(null);
 // the same code path a public group call uses. No WebRTC code here at all.
 export function CallInviteProvider({ children }) {
   const { socket } = useSocket();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [incomingInvite, setIncomingInvite] = useState(null); // { from, roomCode, callerName }
+  const [incomingInvite, setIncomingInvite] = useState(null); // { from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }
   const activeNotification = useRef(null);
 
   // Ask for notification permission once the user is actually logged in
   // (socket only exists once authenticated) — not on the public landing
-  // page before they've done anything, which would feel premature.
+  // page before they've done anything, which would feel premature. If
+  // they grant it and a subscription doesn't already exist on this device,
+  // also quietly turn on "ring when the app is closed" — this is what
+  // makes background push work by default rather than needing a trip to
+  // Settings first. It's still fully visible/toggleable there afterward.
   useEffect(() => {
-    if (socket) requestNotificationPermission();
+    if (!socket) return;
+
+    requestNotificationPermission().then((permission) => {
+      if (permission !== "granted" || !isPushSupported()) return;
+      getExistingPushSubscription().then((existing) => {
+        if (!existing) enableCallPush().catch(() => {}); // silent — Settings surfaces real errors
+      });
+    });
   }, [socket]);
 
   useEffect(() => {
     if (!socket) return;
 
-    const handleInvite = ({ from, roomCode, callerName }) => {
-      setIncomingInvite({ from, roomCode, callerName });
+    const handleInvite = ({ from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }) => {
+      setIncomingInvite({ from, roomCode, callerName, callerAvatarColor, callerAvatarUrl });
       startRingtone();
 
       // Only bother with an OS-level notification if they're not already
@@ -60,13 +74,19 @@ export function CallInviteProvider({ children }) {
     activeNotification.current = null;
   };
 
-  const callFriend = (targetUser, callerName) => {
+  const callFriend = (targetUser) => {
     if (!socket) {
       alert("Not connected to the server yet — please wait a moment and try again.");
       return;
     }
     const roomCode = generateRoomCode();
-    socket.emit("call-invite", { to: targetUser._id, roomCode, callerName });
+    // The server resolves the caller's real name/avatar itself from the
+    // authenticated socket (see socket/socket.js) rather than trusting a
+    // client-sent value — that's what's actually shown. callerNameHint is
+    // only a last-resort fallback for the unlikely case that lookup fails
+    // (e.g. a DB hiccup), so the callee still sees a name instead of a
+    // generic placeholder — it never overrides a successful server lookup.
+    socket.emit("call-invite", { to: targetUser._id, roomCode, callerNameHint: user.username });
     // sessionStorage, not just navigation state — state only lives for the
     // one navigation event and is lost on any page refresh, which was
     // exactly why the room code/count kept reappearing after a reload.

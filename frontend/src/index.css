@@ -43,4 +43,32 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  /* Thin, low-contrast scrollbar for panels where a chunky default
+     scrollbar would look out of place (sidebar, chat history, modals) */
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--color-ink) / 0.15);
+    border-radius: 999px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.96) translateY(4px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+  .animate-scale-in {
+    animation: scaleIn 0.18s ease-out;
+  }
 }

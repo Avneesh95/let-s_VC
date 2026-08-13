@@ -32,6 +32,12 @@ export function SocketProvider({ children }) {
       // that upgrade, not an application bug. Polling is a little less
       // efficient but works reliably anywhere a plain HTTP request does.
       transports: ["polling"],
+      // Socket.IO's default connection timeout is 20s. Render's free tier
+      // spins the backend down after inactivity, and waking it back up on
+      // the first request can take 30-50+ seconds — comfortably longer
+      // than the default, causing every "cold" connection attempt to give
+      // up right as the server was finally waking up. 45s gives it room.
+      timeout: 45000,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,

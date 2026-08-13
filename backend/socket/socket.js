@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const Message = require("../models/Message");
 const User = require("../models/User");
+const { webpush, pushEnabled } = require("../config/webpush");
 
 // In-memory map of userId -> Set of socketIds.
 // Using a Set (not a single socketId) means a user with multiple tabs/
@@ -32,6 +33,46 @@ function getSocketId(userId) {
 async function areFriends(userId, otherUserId) {
   const me = await User.findById(userId).select("friends");
   return !!me?.friends.some((id) => id.toString() === otherUserId);
+}
+
+// Sends a "you're being called" push notification to every device the
+// callee has enabled background call notifications on. Returns true if at
+// least one subscription got a notification, so the caller side can still
+// say "offline" when there's truly no way to reach them.
+async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }) {
+  if (!pushEnabled) return false;
+
+  const user = await User.findById(userId).select("pushSubscriptions");
+  if (!user?.pushSubscriptions?.length) return false;
+
+  const payload = JSON.stringify({
+    type: "incoming-call",
+    from,
+    roomCode,
+    callerName,
+    callerAvatarColor,
+    callerAvatarUrl,
+  });
+
+  const results = await Promise.allSettled(
+    user.pushSubscriptions.map((sub) => webpush.sendNotification(sub, payload))
+  );
+
+  // A subscription that's expired/revoked comes back as a 404/410 — prune
+  // it so we stop wasting a push attempt (and a log warning) on it every call.
+  const deadEndpoints = [];
+  results.forEach((result, i) => {
+    if (result.status === "rejected" && [404, 410].includes(result.reason?.statusCode)) {
+      deadEndpoints.push(user.pushSubscriptions[i].endpoint);
+    }
+  });
+  if (deadEndpoints.length) {
+    await User.findByIdAndUpdate(userId, {
+      $pull: { pushSubscriptions: { endpoint: { $in: deadEndpoints } } },
+    });
+  }
+
+  return results.some((r) => r.status === "fulfilled");
 }
 
 // --- Video rooms ---
@@ -175,20 +216,43 @@ function initSocket(io) {
     // No WebRTC signaling lives here at all — this just notifies the friend
     // and hands both people off to the room-joining flow below, which is
     // the same code path group calls use.
-    socket.on("call-invite", async ({ to, roomCode, callerName }) => {
+    socket.on("call-invite", async ({ to, roomCode, callerNameHint }) => {
       const isFriend = await areFriends(socket.userId, to);
       if (!isFriend) {
         socket.emit("call-error", { message: "You can only call friends" });
         return;
       }
 
+      // Look the caller's profile up server-side rather than trusting a
+      // client-sent name/avatar — also lets the incoming-call UI show the
+      // caller's real avatar without an extra round trip. callerNameHint
+      // is only used if this lookup unexpectedly comes back empty (a DB
+      // hiccup, not the normal path) — it never overrides a real result.
+      const caller = await User.findById(socket.userId).select("username avatarColor avatarUrl");
+      if (!caller) {
+        console.warn(`call-invite: couldn't resolve caller profile for user ${socket.userId}`);
+      }
+      const callerInfo = {
+        callerName: caller?.username || callerNameHint || "Someone",
+        callerAvatarColor: caller?.avatarColor,
+        callerAvatarUrl: caller?.avatarUrl,
+      };
+
       const targetSocketId = getSocketId(to);
-      if (!targetSocketId) {
-        socket.emit("call-error", { message: "That user is offline" });
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("call-invite", { from: socket.userId, roomCode, ...callerInfo });
         return;
       }
 
-      io.to(targetSocketId).emit("call-invite", { from: socket.userId, roomCode, callerName });
+      // No live socket — the callee's app is fully closed, not just
+      // backgrounded (a backgrounded-but-open tab still has a socket and
+      // is handled by the branch above + the client's own Notification API
+      // use for that case). Fall back to Web Push so their phone can still
+      // ring them in, instead of just failing the call.
+      const pushed = await sendCallPush(to, { from: socket.userId, roomCode, ...callerInfo });
+      if (!pushed) {
+        socket.emit("call-error", { message: "That user is offline" });
+      }
     });
 
     socket.on("call-invite-response", ({ to, roomCode, accepted }) => {

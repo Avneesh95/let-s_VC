@@ -1,4 +1,5 @@
 import { Component } from "react";
+import Logo from "./Logo";
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -19,9 +20,7 @@ export default class ErrorBoundary extends Component {
       return (
         <div className="h-dvh flex items-center justify-center bg-paper px-4">
           <div className="text-center flex flex-col items-center gap-3 max-w-sm">
-            <span className="font-display font-semibold text-2xl text-ink tracking-tight">
-              chat<span className="text-brand">/</span>app
-            </span>
+            <Logo size="md" />
             <p className="text-ink/60 text-sm">
               Something went wrong. Try reloading the page — if it keeps happening, your camera
               or microphone permissions might be the cause.

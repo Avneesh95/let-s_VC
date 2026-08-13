@@ -25,7 +25,7 @@ function DraggableSelfView({ children, widthClass }) {
     if (!el || !parent) return;
     const parentRect = parent.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    setPos({ top: 16, left: parentRect.width - elRect.width - 16 });
+    setPos({ top: 84, left: parentRect.width - elRect.width - 16 });
   }, []);
 
   const clamp = (left, top) => {
@@ -203,6 +203,31 @@ export default function GroupCall() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]); // { senderId, username, text, timestamp }
   const [chatInput, setChatInput] = useState("");
+
+  // WhatsApp/FaceTime-style call screen: video fills the entire viewport
+  // and the header/controls float over it as translucent overlays instead
+  // of taking up their own dedicated layout rows. Those overlays auto-hide
+  // after a few seconds of inactivity so the video gets the whole screen,
+  // and reappear on any tap/mouse movement. Kept always-visible while
+  // still ringing/waiting (nothing else to look at yet) or while the chat
+  // panel is open (so its own overlay doesn't fight with a control bar
+  // fading out underneath it).
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const hideControlsTimer = useRef(null);
+  const forceControlsVisible = Object.keys(participants).length + 1 === 1 || chatOpen;
+
+  const bumpControlsVisible = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(hideControlsTimer.current);
+    if (!forceControlsVisible) {
+      hideControlsTimer.current = setTimeout(() => setControlsVisible(false), 4000);
+    }
+  }, [forceControlsVisible]);
+
+  useEffect(() => {
+    bumpControlsVisible();
+    return () => clearTimeout(hideControlsTimer.current);
+  }, [bumpControlsVisible]);
 
   const peerConnections = useRef(new Map()); // userId -> RTCPeerConnection
   const pendingCandidates = useRef(new Map()); // userId -> queued candidates
@@ -606,8 +631,116 @@ export default function GroupCall() {
   );
 
   return (
-    <div className="h-dvh md:h-screen bg-callbg text-white flex flex-col">
-      <div className="flex items-center justify-between gap-2 px-3 md:px-4 py-2.5 md:py-3 bg-black/30 border-b border-white/5">
+    <div
+      className="h-dvh md:h-screen bg-callbg text-white relative overflow-hidden"
+      onPointerDown={bumpControlsVisible}
+      onPointerMove={bumpControlsVisible}
+    >
+      {/* Video layer — always fills the entire screen; header/controls
+          float on top of it as overlays rather than pushing it into a
+          smaller flex row, matching how WhatsApp/FaceTime call screens work. */}
+      <div className="absolute inset-0">
+        {participantCount === 1 && (
+          // Alone in the room — show self full-screen with a clear invite prompt,
+          // since there's nothing else to show yet.
+          <>
+            <VideoTile
+              stream={localStream}
+              label={isDirectCall ? null : `${user.username} (You)`}
+              muted
+              fullSize
+              cameraOff={!isCameraOn}
+              mirrored={facingMode === "user" && !isScreenSharing}
+            />
+            <div className="absolute inset-x-0 top-20 md:top-24 flex justify-center px-4">
+              <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
+                {isDirectCall ? (
+                  <p className="font-display text-lg md:text-xl font-semibold">
+                    Calling {directCallOtherName}…
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-sm text-white/60">Waiting for others to join…</p>
+                    <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
+                      {roomCode}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {participantCount === 2 && (
+          // Exactly one other person — full-screen for them, a draggable
+          // PiP for self (WhatsApp-style: tap and drag your own bubble
+          // anywhere on screen), same layout as a 1-1 call.
+          <>
+            <VideoTile
+              stream={otherParticipants[0][1].stream}
+              label={otherParticipants[0][1].username}
+              fullSize
+            />
+            <DraggableSelfView widthClass={isDirectCall ? "w-20 md:w-28" : "w-28 md:w-40"}>
+              <VideoTile
+                stream={localStream}
+                label={isDirectCall ? null : `${user.username} (You)`}
+                muted
+                cameraOff={!isCameraOn}
+                mirrored={facingMode === "user" && !isScreenSharing}
+                portrait={isDirectCall}
+              />
+            </DraggableSelfView>
+          </>
+        )}
+
+        {participantCount === 3 && (
+          // Dedicated layout instead of a generic grid: 2 tiles on top,
+          // 1 centered (at half-width, not stretched full-width) below —
+          // stretching the 3rd tile to col-span-2 made it visibly taller
+          // than the tiles above it since aspect-video scales with width.
+          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 flex flex-col gap-2 md:gap-3">
+            <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
+              {selfTile}
+              <VideoTile stream={otherParticipants[0][1].stream} label={otherParticipants[0][1].username} />
+            </div>
+            <div className="flex-1 flex justify-center">
+              <div className="w-full md:w-1/2">
+                <VideoTile stream={otherParticipants[1][1].stream} label={otherParticipants[1][1].username} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {participantCount === 4 && (
+          // Exactly 4 — a clean 2x2, no leftover space
+          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 grid grid-cols-2 grid-rows-2 gap-2 md:gap-3">
+            {selfTile}
+            {otherParticipants.map(([userId, p]) => (
+              <VideoTile key={userId} stream={p.stream} label={p.username} />
+            ))}
+          </div>
+        )}
+
+        {participantCount >= 5 && (
+          // 5-6 people — 2 per row on phones (3 columns would squeeze
+          // tiles too small on a narrow screen), 3 per row on tablet+
+          <div className="h-full overflow-y-auto p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 auto-rows-fr content-center">
+            {selfTile}
+            {otherParticipants.map(([userId, p]) => (
+              <VideoTile key={userId} stream={p.stream} label={p.username} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Header — floats over the video, fades out with the rest of the
+          chrome after a few seconds of inactivity */}
+      <div
+        className={`absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/70 via-black/25 to-transparent px-3 md:px-4 pt-3 pb-8 flex items-center justify-between gap-2 transition-opacity duration-300 ${
+          controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <div className="flex items-baseline gap-2 md:gap-3 min-w-0">
           {isDirectCall ? (
             <span className="font-display font-semibold truncate">
@@ -647,145 +780,53 @@ export default function GroupCall() {
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden relative">
-        <div className="flex-1 relative">
-          {participantCount === 1 && (
-            // Alone in the room — show self full-screen with a clear invite prompt,
-            // since there's nothing else to show yet.
-            <>
-              <VideoTile
-                stream={localStream}
-                label={isDirectCall ? null : `${user.username} (You)`}
-                muted
-                fullSize
-                cameraOff={!isCameraOn}
-                mirrored={facingMode === "user" && !isScreenSharing}
-              />
-              <div className="absolute inset-x-0 top-6 md:top-8 flex justify-center px-4">
-                <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
-                  {isDirectCall ? (
-                    <p className="font-display text-lg md:text-xl font-semibold">
-                      Calling {directCallOtherName}…
-                    </p>
-                  ) : (
-                    <>
-                      <p className="text-sm text-white/60">Waiting for others to join…</p>
-                      <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
-                        {roomCode}
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {participantCount === 2 && (
-            // Exactly one other person — full-screen for them, a draggable
-            // PiP for self (WhatsApp-style: tap and drag your own bubble
-            // anywhere on screen), same layout as a 1-1 call.
-            <>
-              <VideoTile
-                stream={otherParticipants[0][1].stream}
-                label={otherParticipants[0][1].username}
-                fullSize
-              />
-              <DraggableSelfView widthClass={isDirectCall ? "w-20 md:w-28" : "w-28 md:w-40"}>
-                <VideoTile
-                  stream={localStream}
-                  label={isDirectCall ? null : `${user.username} (You)`}
-                  muted
-                  cameraOff={!isCameraOn}
-                  mirrored={facingMode === "user" && !isScreenSharing}
-                  portrait={isDirectCall}
-                />
-              </DraggableSelfView>
-            </>
-          )}
-
-          {participantCount === 3 && (
-            // Dedicated layout instead of a generic grid: 2 tiles on top,
-            // 1 centered (at half-width, not stretched full-width) below —
-            // stretching the 3rd tile to col-span-2 made it visibly taller
-            // than the tiles above it since aspect-video scales with width.
-            <div className="h-full p-2 md:p-3 flex flex-col gap-2 md:gap-3">
-              <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
-                {selfTile}
-                <VideoTile stream={otherParticipants[0][1].stream} label={otherParticipants[0][1].username} />
-              </div>
-              <div className="flex-1 flex justify-center">
-                <div className="w-full md:w-1/2">
-                  <VideoTile stream={otherParticipants[1][1].stream} label={otherParticipants[1][1].username} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {participantCount === 4 && (
-            // Exactly 4 — a clean 2x2, no leftover space
-            <div className="h-full p-2 md:p-3 grid grid-cols-2 grid-rows-2 gap-2 md:gap-3">
-              {selfTile}
-              {otherParticipants.map(([userId, p]) => (
-                <VideoTile key={userId} stream={p.stream} label={p.username} />
-              ))}
-            </div>
-          )}
-
-          {participantCount >= 5 && (
-            // 5-6 people — 2 per row on phones (3 columns would squeeze
-            // tiles too small on a narrow screen), 3 per row on tablet+
-            <div className="h-full overflow-y-auto p-2 md:p-3 grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 auto-rows-fr content-center">
-              {selfTile}
-              {otherParticipants.map(([userId, p]) => (
-                <VideoTile key={userId} stream={p.stream} label={p.username} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {chatOpen && (
-          <div className="absolute inset-0 md:static md:w-72 md:max-w-[80vw] bg-callbg md:bg-black/40 backdrop-blur-sm flex flex-col border-l border-white/10 z-10">
-            <div className="px-3 py-2.5 border-b border-white/10 font-display font-semibold text-sm flex items-center justify-between">
-              Room Chat
-              <button
-                onClick={() => setChatOpen(false)}
-                className="md:hidden text-white/50 hover:text-white text-lg leading-none"
-                aria-label="Close chat"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-              {chatMessages.length === 0 && (
-                <p className="text-xs text-white/30 text-center mt-4">No messages yet</p>
-              )}
-              {chatMessages.map((m, i) => (
-                <div key={i} className="text-sm">
-                  <span className="font-semibold text-brand-light">{m.username}: </span>
-                  <span className="break-words text-white/90">{m.text}</span>
-                </div>
-              ))}
-            </div>
-            <form onSubmit={sendChatMessage} className="p-2 border-t border-white/10 flex gap-2">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Message…"
-                className="flex-1 min-w-0 bg-white/10 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-light"
-              />
-              <button
-                type="submit"
-                className="bg-brand hover:bg-brand-dark transition-colors rounded-full px-3 py-1.5 text-sm"
-              >
-                Send
-              </button>
-            </form>
+      {chatOpen && (
+        <div className="absolute inset-0 md:inset-y-0 md:right-0 md:left-auto md:w-80 md:max-w-[80vw] bg-callbg/95 md:bg-black/60 md:backdrop-blur-md flex flex-col md:border-l md:border-white/10 z-40">
+          <div className="px-3 py-2.5 border-b border-white/10 font-display font-semibold text-sm flex items-center justify-between">
+            Room Chat
+            <button
+              onClick={() => setChatOpen(false)}
+              className="text-white/50 hover:text-white text-lg leading-none"
+              aria-label="Close chat"
+            >
+              ✕
+            </button>
           </div>
-        )}
-      </div>
+          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+            {chatMessages.length === 0 && (
+              <p className="text-xs text-white/30 text-center mt-4">No messages yet</p>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-semibold text-brand-light">{m.username}: </span>
+                <span className="break-words text-white/90">{m.text}</span>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={sendChatMessage} className="p-2 border-t border-white/10 flex gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Message…"
+              className="flex-1 min-w-0 bg-white/10 rounded-full px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-light"
+            />
+            <button
+              type="submit"
+              className="bg-brand hover:bg-brand-dark transition-colors rounded-full px-3 py-1.5 text-sm"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      )}
 
-      <div className="bg-black/30 border-t border-white/5 py-3 md:py-4 flex items-center justify-center gap-2 md:gap-3">
+      {/* Bottom controls — floats over the video, same fade behavior as the header */}
+      <div
+        className={`absolute bottom-0 inset-x-0 z-30 bg-gradient-to-t from-black/70 via-black/25 to-transparent pt-8 pb-4 md:pb-5 flex items-center justify-center gap-2 md:gap-3 transition-opacity duration-300 ${
+          controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <button
           onClick={toggleMic}
           title={isMicOn ? "Mute mic" : "Unmute mic"}

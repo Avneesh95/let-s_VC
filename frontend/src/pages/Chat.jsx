@@ -182,7 +182,7 @@ export default function Chat() {
           onTyping={handleTyping}
           onStopTyping={handleStopTyping}
           isOtherTyping={isOtherTyping}
-          onStartCall={() => callFriend(activeUser, user.username)}
+          onStartCall={() => callFriend(activeUser)}
           isUserOnline={activeUser ? onlineUsers.includes(activeUser._id) : false}
           onBack={() => setActiveUser(null)}
         />

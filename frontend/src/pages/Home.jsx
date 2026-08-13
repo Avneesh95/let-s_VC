@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "../components/ThemeToggle";
+import Logo from "../components/Logo";
+import Footer from "../components/Footer";
 
 export default function Home() {
   const { user, guestLogin } = useAuth();
@@ -49,9 +51,7 @@ export default function Home() {
       </div>
       <div className="w-full max-w-sm flex flex-col gap-6">
         <div className="text-center">
-          <span className="font-display font-semibold text-2xl text-ink tracking-tight">
-            chat<span className="text-brand">/</span>app
-          </span>
+          <Logo size="lg" className="justify-center" />
         </div>
 
         <div className="bg-ink text-white rounded-2xl p-6 shadow-lg shadow-ink/10 flex flex-col gap-3">
@@ -110,6 +110,7 @@ export default function Home() {
             </Link>
           </div>
         </div>
+        <Footer />
       </div>
     </div>
   );

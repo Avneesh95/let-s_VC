@@ -29,8 +29,8 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
     <div className={`flex mb-4 ${isOwn ? "justify-end" : "justify-start"} group relative`}>
       <div className={`flex items-end gap-1 ${isOwn ? "flex-row-reverse" : ""}`}>
         <div
-          className={`max-w-[78%] md:max-w-[60%] rounded-lg px-3 py-2 relative ${
-            isOwn ? "bg-bubbleOwn" : "bg-surface"
+          className={`max-w-[78%] md:max-w-[60%] rounded-2xl px-3 py-2 relative shadow-sm ${
+            isOwn ? "bg-bubbleOwn rounded-br-md" : "bg-surface rounded-bl-md"
           } ${message.type === "image" ? "p-1" : ""}`}
         >
           {message.type === "image" ? (
