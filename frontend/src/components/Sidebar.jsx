@@ -16,7 +16,7 @@ function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectReques
     );
   }
   if (user.friendStatus === "request-sent") {
-    return <span className="text-xs text-ink/30 whitespace-nowrap">Requested</span>;
+    return <span className="text-xs text-ink/55 whitespace-nowrap">Requested</span>;
   }
   if (user.friendStatus === "request-received") {
     return (
@@ -191,7 +191,7 @@ export default function Sidebar({
         <button
           onClick={() => setTab("chats")}
           className={`flex-1 text-sm font-medium rounded-xl py-2 transition-colors inline-flex items-center justify-center gap-1.5 ${
-            tab === "chats" ? "bg-brand text-white shadow-sm" : "text-ink/50 hover:bg-ink/5"
+            tab === "chats" ? "bg-brand text-white shadow-sm" : "text-ink/70 hover:bg-ink/5"
           }`}
         >
           <MessageCircle className="w-3.5 h-3.5" strokeWidth={1.75} /> Chats
@@ -199,7 +199,7 @@ export default function Sidebar({
         <button
           onClick={() => setTab("find")}
           className={`relative flex-1 text-sm font-medium rounded-xl py-2 transition-colors inline-flex items-center justify-center gap-1.5 ${
-            tab === "find" ? "bg-brand text-white shadow-sm" : "text-ink/50 hover:bg-ink/5"
+            tab === "find" ? "bg-brand text-white shadow-sm" : "text-ink/70 hover:bg-ink/5"
           }`}
         >
           <Users className="w-3.5 h-3.5" strokeWidth={1.75} /> Find people
@@ -217,7 +217,7 @@ export default function Sidebar({
             <span className="w-11 h-11 rounded-full bg-ink/5 flex items-center justify-center text-ink/25 mb-1">
               <MessageCircle className="w-5 h-5" strokeWidth={1.5} />
             </span>
-            <p className="text-sm text-ink/50">No friends yet.</p>
+            <p className="text-sm text-ink/60">No friends yet.</p>
             <button
               onClick={() => setTab("find")}
               className="text-sm text-brand dark:text-brand-light hover:underline font-medium"
@@ -235,7 +235,7 @@ export default function Sidebar({
       ) : (
         <div className="flex-1 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-2">
           {userList.length === 0 ? (
-            <p className="text-sm text-ink/40 text-center mt-4">No one else has joined yet.</p>
+            <p className="text-sm text-ink/60 text-center mt-4">No one else has joined yet.</p>
           ) : (
             userList.map((u) => (
               <PersonCard

@@ -64,7 +64,7 @@ export default function Home() {
             </span>
             <h1 className="font-display text-xl font-semibold">Join a video room</h1>
           </div>
-          <p className="text-sm text-white/60">
+          <p className="text-sm text-white/70">
             No account needed — enter your name and a room code.
           </p>
           <form onSubmit={handleJoin} className="flex flex-col gap-2 mt-1">

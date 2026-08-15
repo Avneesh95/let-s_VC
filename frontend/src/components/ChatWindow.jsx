@@ -26,7 +26,7 @@ export default function ChatWindow({
 
   if (!activeUser) {
     return (
-      <div className="hidden md:flex flex-1 flex-col items-center justify-center gap-3 bg-chatbg text-ink/40">
+      <div className="hidden md:flex flex-1 flex-col items-center justify-center gap-3 bg-chatbg text-ink/60">
         <span className="w-14 h-14 rounded-full bg-ink/5 flex items-center justify-center">
           <MessageSquareText className="w-6 h-6" strokeWidth={1.5} />
         </span>
@@ -77,7 +77,7 @@ export default function ChatWindow({
           <MessageBubble key={m._id} message={m} isOwn={m.sender === currentUserId} onReact={onReact} currentUserId={currentUserId} />
         ))}
         {isOtherTyping && (
-          <div className="text-sm text-ink/50 italic py-1">{activeUser.username} is typing…</div>
+          <div className="text-sm text-ink/60 italic py-1">{activeUser.username} is typing…</div>
         )}
         <div ref={bottomRef} />
       </div>
@@ -85,7 +85,7 @@ export default function ChatWindow({
       {isFriend ? (
         <MessageInput onSend={onSend} onSendImage={onSendImage} onTyping={onTyping} onStopTyping={onStopTyping} />
       ) : (
-        <div className="bg-surface border-t border-line/10 px-4 py-4 text-center text-sm text-ink/50">
+        <div className="bg-surface border-t border-line/10 px-4 py-4 text-center text-sm text-ink/60">
           {activeUser.friendStatus === "request-sent"
             ? `Friend request sent — you can chat once ${activeUser.username} accepts.`
             : activeUser.friendStatus === "request-received"

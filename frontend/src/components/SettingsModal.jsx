@@ -215,7 +215,7 @@ export default function SettingsModal({ onClose }) {
                   </span>
                   <div>
                     <p className="text-sm font-medium text-ink">Ring when app is closed</p>
-                    <p className="text-xs text-ink/50 mt-0.5">
+                    <p className="text-xs text-ink/60 mt-0.5">
                       Get a call notification on this device even when the app isn't open.
                     </p>
                   </div>
@@ -237,7 +237,7 @@ export default function SettingsModal({ onClose }) {
                 </button>
               </div>
               {pushError && <p className="text-xs text-danger">{pushError}</p>}
-              <p className="text-[11px] text-ink/35 leading-relaxed">
+              <p className="text-[11px] text-ink/50 leading-relaxed">
                 Note: a fully closed app can't play a continuous ringtone — you'll get a
                 system notification with Answer/Decline instead.
               </p>

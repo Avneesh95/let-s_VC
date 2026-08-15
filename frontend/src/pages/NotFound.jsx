@@ -13,7 +13,7 @@ export default function NotFound() {
         </span>
         <div>
           <p className="font-serif text-xl text-ink">That page doesn't exist.</p>
-          <p className="text-sm text-ink/45 mt-1">Let's get you back on track.</p>
+          <p className="text-sm text-ink/60 mt-1">Let's get you back on track.</p>
         </div>
         <Link
           to="/"

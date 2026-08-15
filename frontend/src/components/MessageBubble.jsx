@@ -41,7 +41,7 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
           ) : (
             <p className="text-sm break-words text-ink">{message.text}</p>
           )}
-          <span className="block text-[10px] text-ink/35 text-right mt-0.5">{time}</span>
+          <span className="block text-[10px] text-ink/45 text-right mt-0.5">{time}</span>
 
           {Object.keys(grouped).length > 0 && (
             <div className={`absolute -bottom-3 ${isOwn ? "right-2" : "left-2"} flex gap-1`}>

@@ -50,7 +50,7 @@ export default function Register() {
           <span className="absolute top-0 left-6 right-6 h-px rule-gold" />
           <div className="mb-1.5">
             <h1 className="font-serif text-[1.7rem] leading-tight font-medium text-ink">Create your account</h1>
-            <p className="text-sm text-ink/45 mt-1">A few details and you're in.</p>
+            <p className="text-sm text-ink/60 mt-1">A few details and you're in.</p>
           </div>
           {error && (
             <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</p>
@@ -103,14 +103,14 @@ export default function Register() {
             )}
             {loading ? "Creating account…" : "Sign up"}
           </button>
-          <p className="text-sm text-center text-ink/50">
+          <p className="text-sm text-center text-ink/60">
             Already have an account?{" "}
             <Link to="/login" className="text-brand dark:text-brand-light hover:underline font-medium">
               Log in
             </Link>
           </p>
         </form>
-        <p className="text-center text-xs text-ink/40">
+        <p className="text-center text-xs text-ink/60">
           Just here for a video call?{" "}
           <Link to="/" className="text-brand dark:text-brand-light hover:underline">
             Join a room instead

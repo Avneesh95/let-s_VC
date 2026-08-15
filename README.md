@@ -27,13 +27,17 @@ decision (and why) is the most interesting thing to talk about in this project.
 - In-room text chat during video calls
 - Installable as a PWA (Add to Home Screen / desktop install), with an offline-resilient
   app shell via a service worker
-- Browser notifications for incoming calls when the tab isn't focused
+- Browser notifications for incoming calls when the tab isn't focused, plus Web Push
+  notifications that can reach the callee even when the app is fully closed (see
+  Architecture — this is a real trade-off, not a full replacement for the in-tab ringtone)
+- Rate limiting on auth endpoints, server-side email/password validation, and a shared
+  `asyncHandler` wrapper so an async route error returns a clean response instead of
+  hanging the request (a real bug this project used to have — see Architecture)
 - Responsive layout (Tailwind), production hardening (error boundary, 404 page, centralized
   API error handling, security headers, fail-fast env var validation)
 
 **Deliberately excluded**: group calls beyond 6 people (would need an SFU media server, not
-mesh WebRTC — see Architecture), screen sharing, call recording, message read receipts,
-push notifications. Each is a reasonable "what would you add next" answer.
+mesh WebRTC — see Architecture), call recording, message read receipts.
 
 ## Architecture
 
@@ -109,14 +113,42 @@ a senior-level instinct, not just a debugging story.
   only verifies the JWT signature, and the room-joining code path never touches the `User`
   model — video rooms don't need identity, so guests don't need an account.
 
+### Background call notifications — and their real limitation
+When you call a friend, the server first tries their live Socket.IO connection (covers both
+the foreground tab and a backgrounded-but-still-open tab — the client's own Notification API
+call handles surfacing that case). If there's no live socket at all — the app is fully
+closed, not just backgrounded — that used to just fail with "user is offline" and the callee
+never found out. Now the server falls back to **Web Push**: each device that's opted in
+(Settings → "Ring when app is closed") has a subscription stored on the `User` document, and
+the service worker (`public/sw.js`) handles the `push` event with a persistent, high-priority
+OS notification carrying Answer/Decline actions that deep-link straight into the room.
+
+The honest limitation, worth stating up front in an interview rather than glossing over: **a
+closed app can't loop a continuous ringtone** — there's no page for a service worker to play
+audio through, only a one-shot system notification sound plus vibration. The in-tab
+synthesized ringtone (see below) still owns the "actually rings" experience; push covers the
+"at least tell them a call is happening" case for a fully closed app. Conflating the two would
+be overselling what's technically possible with today's Push API.
+
+### Two other real bugs worth mentioning
+- **Async route handlers with no `try/catch`** (`friends.js`'s accept/reject/request routes)
+  would hang a request indefinitely on a DB error, since Express 4 doesn't forward async
+  rejections to the error handler automatically. Fixed with a small `asyncHandler` wrapper
+  rather than manually try/catching every route — the fix is the *pattern*, not a one-off patch.
+- **No rate limiting or input validation on `/api/auth`** meant a 1-character password and
+  brute-force login attempts were both accepted. `express-rate-limit` plus real email-format
+  and password-length checks close that gap without adding much code.
+
 ## Project structure
 ```
 backend/
-  models/       User, Message, FriendRequest (Mongoose)
-  routes/       REST endpoints (auth, users, messages, friends, upload)
-  middleware/   JWT verification for protected routes
-  socket/       Socket.IO handlers — messaging, friend-gated call invites, and the
-                unified room-joining/signaling flow that serves both call types
+  models/       User (now also stores Web Push subscriptions), Message, FriendRequest
+  routes/       REST endpoints (auth, users, messages, friends, upload, push)
+  middleware/   JWT verification for protected routes, asyncHandler for clean async errors
+  socket/       Socket.IO handlers — messaging, friend-gated call invites (with a Web
+                Push fallback when the callee has no live socket), and the unified
+                room-joining/signaling flow that serves both call types
+  config/       MongoDB connection, Cloudinary, Web Push/VAPID setup
   server.js     Express + HTTP server + Socket.IO bootstrap, env var validation,
                 security headers, centralized error handler
 frontend/
@@ -127,7 +159,11 @@ frontend/
                 GroupCall (the one video-calling implementation, used for both call
                 types), NotFound
   src/components/  Sidebar, ChatWindow, MessageBubble, MessageInput, IncomingCallBanner,
-                    ErrorBoundary
+                    SettingsModal (profile + the push-notification toggle), ErrorBoundary
+  src/utils/    push.js (Web Push subscribe/unsubscribe), notifications.js (in-tab
+                Notification API), ringtone.js (synthesized ring), iceServers.js
+  public/sw.js  Service worker — app-shell caching plus the push/notificationclick
+                handlers that power background call notifications
 ```
 
 ## Running locally
@@ -135,6 +171,8 @@ frontend/
 ```bash
 cd backend
 cp .env.example .env   # fill in MONGO_URI, JWT_SECRET, CLOUDINARY_* keys
+# optional — enables "ring when app is closed"; app runs fine without it
+npx web-push generate-vapid-keys   # paste the pair into VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
 npm install
 npm run dev
 ```
@@ -152,7 +190,9 @@ npm run dev
 2. **Image storage**: Cloudinary free account (cloud name, API key, API secret)
 3. **Backend**: Render (or Railway) — set `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL`
    (your deployed frontend URL, **no trailing slash** — a trailing slash silently breaks
-   CORS since browsers never send one in the `Origin` header), and the `CLOUDINARY_*` vars
+   CORS since browsers never send one in the `Origin` header), the `CLOUDINARY_*` vars, and
+   optionally `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT_EMAIL` for background
+   call notifications
 4. **Frontend**: Vercel or Netlify — set `VITE_API_URL` to your backend URL. If deploying
    to Netlify, make sure `frontend/public/_redirects` (containing `/* /index.html 200`)
    is present — without it, direct links to any route other than `/` 404, since Netlify
@@ -215,3 +255,9 @@ npm run dev
 - **What would you add for real scale?** Redis for presence (currently an in-memory Map,
   fine for one server instance), an SFU for calls beyond 6 people, and your own TURN
   credentials instead of a shared public demo server.
+- **The incoming-call payload is resolved server-side, not trusted from the client.**
+  Originally the caller's own client sent its display name over the socket event; now the
+  server looks the caller's `username`/avatar up from their authenticated `socket.userId`
+  instead. Small, but it's the difference between "whatever the caller's browser claims" and
+  an actual authorization-backed fact — the same principle as the friends-only checks
+  elsewhere, just easy to miss on a field that looks cosmetic.

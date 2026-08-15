@@ -126,11 +126,11 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portra
           }`}
         />
       ) : (
-        <span className="text-white/40 text-sm">Connecting…</span>
+        <span className="text-white/60 text-sm">Connecting…</span>
       )}
       {cameraOff && (
         <div className="absolute inset-0 bg-callbg flex items-center justify-center">
-          <VideoOff className="w-7 h-7 text-white/30" strokeWidth={1.5} />
+          <VideoOff className="w-7 h-7 text-white/45" strokeWidth={1.5} />
         </div>
       )}
       {label && (
@@ -210,6 +210,14 @@ export default function GroupCall() {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  // Screen sharing is a desktop-browser feature in practice — iOS Safari
+  // doesn't implement getDisplayMedia at all, and Android Chrome's support
+  // is unreliable/OS-version-dependent. Feature-detecting here (rather than
+  // just hiding the button visually) means a phone never even sees a
+  // control that's likely to silently fail if tapped.
+  const [screenShareSupported] = useState(
+    () => typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia
+  );
   // Remembers the camera video track while screen sharing is active, so
   // stopping the share can restore the camera feed exactly as it was.
   const cameraTrackRef = useRef(null);
@@ -586,7 +594,7 @@ export default function GroupCall() {
           className="relative bg-white/5 border border-white/10 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-3 overflow-hidden"
         >
           <span className="absolute top-0 left-6 right-6 h-px rule-gold" />
-          <p className="text-xs text-white/40 uppercase tracking-wide">Room</p>
+          <p className="text-xs text-white/55 uppercase tracking-wide">Room</p>
           <h1 className="font-display text-2xl font-semibold tracking-widest -mt-2">{roomCode}</h1>
           <p className="text-sm text-white/50">Enter your name to join this video call.</p>
           <input
@@ -762,13 +770,13 @@ export default function GroupCall() {
             </span>
           ) : (
             <>
-              <span className="hidden sm:inline text-xs text-white/40 uppercase tracking-wide">
+              <span className="hidden sm:inline text-xs text-white/55 uppercase tracking-wide">
                 Room
               </span>
               <span className="font-display font-semibold tracking-widest truncate">
                 {roomCode}
               </span>
-              <span className="text-xs md:text-sm text-white/40 shrink-0">
+              <span className="text-xs md:text-sm text-white/60 shrink-0">
                 {participantCount}/{MAX_PARTICIPANTS}
               </span>
             </>
@@ -808,7 +816,7 @@ export default function GroupCall() {
           </div>
           <div className="flex-1 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-2">
             {chatMessages.length === 0 && (
-              <p className="text-xs text-white/30 text-center mt-4">No messages yet</p>
+              <p className="text-xs text-white/55 text-center mt-4">No messages yet</p>
             )}
             {chatMessages.map((m, i) => (
               <div key={i} className="text-sm">
@@ -867,15 +875,17 @@ export default function GroupCall() {
         >
           <RefreshCw className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
         </button>
-        <button
-          onClick={toggleScreenShare}
-          title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
-          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all ${
-            isScreenSharing ? "bg-gold text-callbg shadow-neon" : "bg-white/10 hover:bg-white/20"
-          }`}
-        >
-          <ScreenShare className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
-        </button>
+        {screenShareSupported && (
+          <button
+            onClick={toggleScreenShare}
+            title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+            className={`hidden md:flex w-10 h-10 md:w-12 md:h-12 rounded-full items-center justify-center transition-all ${
+              isScreenSharing ? "bg-gold text-callbg shadow-neon" : "bg-white/10 hover:bg-white/20"
+            }`}
+          >
+            <ScreenShare className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
+          </button>
+        )}
         <button
           onClick={() => setChatOpen((v) => !v)}
           title="Toggle chat"
