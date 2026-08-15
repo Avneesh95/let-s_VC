@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { X, Camera, BellRing } from "lucide-react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
-import { enableCallPush, disableCallPush, getExistingPushSubscription, isPushSupported } from "../utils/push";
+import {
+  enableCallPush,
+  disableCallPush,
+  getExistingPushSubscription,
+  isPushSupported,
+  isPushConfiguredOnServer,
+} from "../utils/push";
 
 export default function SettingsModal({ onClose }) {
   const { user, updateUser } = useAuth();
@@ -22,7 +28,7 @@ export default function SettingsModal({ onClose }) {
 
   // "checking" while we ask the service worker whether a subscription
   // already exists, so the toggle doesn't flash "off" then "on" on open.
-  const [pushState, setPushState] = useState("checking"); // checking | on | off | unsupported
+  const [pushState, setPushState] = useState("checking"); // checking | on | off | unsupported | server-unconfigured
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState("");
 
@@ -31,7 +37,21 @@ export default function SettingsModal({ onClose }) {
       setPushState("unsupported");
       return;
     }
-    getExistingPushSubscription().then((sub) => setPushState(sub ? "on" : "off"));
+    // Two independent things have to be true for this feature to work: the
+    // browser has to support push, AND the server needs VAPID keys
+    // configured. Checking both up front means a server that isn't set up
+    // for push shows an accurate explanation immediately, instead of the
+    // toggle looking available and then failing with a generic error the
+    // moment it's tapped.
+    Promise.all([getExistingPushSubscription(), isPushConfiguredOnServer()]).then(
+      ([sub, serverConfigured]) => {
+        if (!serverConfigured) {
+          setPushState("server-unconfigured");
+        } else {
+          setPushState(sub ? "on" : "off");
+        }
+      }
+    );
   }, []);
 
   const handlePushToggle = async () => {
@@ -220,27 +240,39 @@ export default function SettingsModal({ onClose }) {
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={handlePushToggle}
-                  disabled={pushState === "checking" || pushBusy}
-                  role="switch"
-                  aria-checked={pushState === "on"}
-                  className={`shrink-0 w-11 h-6 rounded-full relative transition-colors disabled:opacity-50 ${
-                    pushState === "on" ? "bg-brand" : "bg-ink/15"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                      pushState === "on" ? "translate-x-[22px]" : "translate-x-0.5"
+                {pushState !== "server-unconfigured" && (
+                  <button
+                    onClick={handlePushToggle}
+                    disabled={pushState === "checking" || pushBusy}
+                    role="switch"
+                    aria-checked={pushState === "on"}
+                    className={`shrink-0 w-11 h-6 rounded-full relative transition-colors disabled:opacity-50 ${
+                      pushState === "on" ? "bg-brand" : "bg-ink/15"
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        pushState === "on" ? "translate-x-[22px]" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                )}
               </div>
-              {pushError && <p className="text-xs text-danger">{pushError}</p>}
-              <p className="text-[11px] text-ink/50 leading-relaxed">
-                Note: a fully closed app can't play a continuous ringtone — you'll get a
-                system notification with Answer/Decline instead.
-              </p>
+              {pushState === "server-unconfigured" ? (
+                <p className="text-xs text-ink/50 bg-ink/5 rounded-lg px-2.5 py-2 leading-relaxed">
+                  Not available yet — this server hasn't been set up for push notifications
+                  (missing VAPID keys). Everything else works normally; this only affects
+                  ringing while the app is fully closed.
+                </p>
+              ) : (
+                <>
+                  {pushError && <p className="text-xs text-danger">{pushError}</p>}
+                  <p className="text-[11px] text-ink/50 leading-relaxed">
+                    Note: a fully closed app can't play a continuous ringtone — you'll get a
+                    system notification with Answer/Decline instead.
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 import generateRoomCode from "../utils/generateRoomCode";
 import { requestNotificationPermission, showNotification } from "../utils/notifications";
 import { startRingtone, stopRingtone } from "../utils/ringtone";
-import { enableCallPush, getExistingPushSubscription, isPushSupported } from "../utils/push";
+import { enableCallPush, getExistingPushSubscription, isPushSupported, isPushConfiguredOnServer } from "../utils/push";
 
 const CallInviteContext = createContext(null);
 
@@ -30,11 +30,15 @@ export function CallInviteProvider({ children }) {
   // Settings first. It's still fully visible/toggleable there afterward.
   useEffect(() => {
     if (!socket) return;
+    if (!isPushSupported()) return;
 
-    requestNotificationPermission().then((permission) => {
-      if (permission !== "granted" || !isPushSupported()) return;
-      getExistingPushSubscription().then((existing) => {
-        if (!existing) enableCallPush().catch(() => {}); // silent — Settings surfaces real errors
+    isPushConfiguredOnServer().then((configured) => {
+      if (!configured) return; // nothing to enable — don't even prompt for permission
+      requestNotificationPermission().then((permission) => {
+        if (permission !== "granted") return;
+        getExistingPushSubscription().then((existing) => {
+          if (!existing) enableCallPush().catch(() => {}); // silent — Settings surfaces real errors
+        });
       });
     });
   }, [socket]);
