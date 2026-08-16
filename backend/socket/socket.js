@@ -11,6 +11,11 @@ const { webpush, pushEnabled } = require("../config/webpush");
 // instances.
 const onlineUsers = new Map();
 
+// Captured once initSocket(io) runs in server.js — lets relayCallDeclined
+// (called from routes/calls.js, a plain REST route with no socket of its
+// own) reach the same io instance instead of needing it passed around.
+let ioInstance = null;
+
 function addSocket(userId, socketId) {
   if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
   onlineUsers.get(userId).add(socketId);
@@ -45,6 +50,19 @@ async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarCo
   const user = await User.findById(userId).select("pushSubscriptions");
   if (!user?.pushSubscriptions?.length) return false;
 
+  // The service worker handling this notification has no live socket
+  // connection (the app is fully closed) and can't read the page's
+  // localStorage-stored JWT either — a service worker runs in a separate
+  // context with no access to it. So "Decline" can't authenticate the
+  // normal way. Instead, this one-purpose token is scoped to exactly this
+  // call (which room, which caller) and expires with the ring window —
+  // it can only ever be used to decline this specific call, nothing else.
+  const declineToken = jwt.sign(
+    { purpose: "call-decline", roomCode, from },
+    process.env.JWT_SECRET,
+    { expiresIn: "5m" }
+  );
+
   const payload = JSON.stringify({
     type: "incoming-call",
     from,
@@ -52,6 +70,7 @@ async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarCo
     callerName,
     callerAvatarColor,
     callerAvatarUrl,
+    declineToken,
   });
 
   const results = await Promise.allSettled(
@@ -73,6 +92,19 @@ async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarCo
   }
 
   return results.some((r) => r.status === "fulfilled");
+}
+
+// Relays a decline back to the caller when it comes from a device that has
+// no live socket of its own (see the decline token above) — used by
+// routes/calls.js after verifying the token. Exported off the initSocket
+// function itself (see module.exports at the bottom) so the REST route can
+// reach the same in-memory online-users map and io instance this module
+// already owns, without a second source of truth for either.
+function relayCallDeclined(callerId, roomCode) {
+  const targetSocketId = getSocketId(callerId);
+  if (!targetSocketId || !ioInstance) return false;
+  ioInstance.to(targetSocketId).emit("call-invite-response", { roomCode, accepted: false });
+  return true;
 }
 
 // --- Video rooms ---
@@ -116,6 +148,8 @@ function getRoomParticipants(roomCode, excludeUserId) {
 }
 
 function initSocket(io) {
+  ioInstance = io;
+
   // Every socket connection must present a valid JWT before we let it in.
   io.use((socket, next) => {
     try {
@@ -348,3 +382,4 @@ function initSocket(io) {
 }
 
 module.exports = initSocket;
+module.exports.relayCallDeclined = relayCallDeclined;

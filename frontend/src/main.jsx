@@ -25,8 +25,22 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 // hot-module-reload caching and causes more confusion than it's worth.
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((err) => {
-      console.warn("Service worker registration failed:", err);
-    });
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => {
+        // The service worker needs to know the backend's API base URL to
+        // relay a call decline via REST when the app is fully closed (see
+        // sw.js) — it can't read import.meta.env itself, since it's a
+        // plain static file, not part of the Vite bundle. Sent on every
+        // load (cheap, idempotent) rather than only once, so it's always
+        // current even after an env var change + redeploy.
+        const apiBaseUrl = `${import.meta.env.VITE_API_URL}/api`;
+        const sendConfig = (worker) => worker?.postMessage({ type: "SET_API_BASE_URL", apiBaseUrl });
+        sendConfig(registration.active);
+        navigator.serviceWorker.ready.then((reg) => sendConfig(reg.active));
+      })
+      .catch((err) => {
+        console.warn("Service worker registration failed:", err);
+      });
   });
 }

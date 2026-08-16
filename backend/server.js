@@ -13,6 +13,7 @@ const messageRoutes = require("./routes/messages");
 const uploadRoutes = require("./routes/upload");
 const friendRoutes = require("./routes/friends");
 const pushRoutes = require("./routes/push");
+const callRoutes = require("./routes/calls");
 
 // Fail fast on boot if required config is missing, rather than starting
 // successfully and then failing confusingly on the first request that
@@ -84,6 +85,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/friends", friendRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/calls", callRoutes);
 
 app.get("/", (req, res) => res.send("Chat API is running"));
 
