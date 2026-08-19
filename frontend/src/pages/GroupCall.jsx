@@ -192,6 +192,26 @@ export default function GroupCall() {
   // userId -> { username, stream }
   const [participants, setParticipants] = useState({});
   const [error, setError] = useState("");
+  // Distinguishes "never connected yet" (ringing out) from "was connected,
+  // then the other side left" — only a direct 1-1 call needs this: a group
+  // room being momentarily empty is normal (everyone else could still
+  // join), but a 1-1 call has exactly one other person, so once they leave
+  // there is nothing left to be "waiting" for.
+  const hadConnectedRef = useRef(false);
+  const [callEnded, setCallEnded] = useState(false);
+
+  useEffect(() => {
+    if (Object.keys(participants).length > 0) hadConnectedRef.current = true;
+  }, [participants]);
+
+  // Once the call is marked ended, actually leave — after a short beat so
+  // "Call ended" is visible rather than the screen just vanishing.
+  useEffect(() => {
+    if (!callEnded) return;
+    stopRingtone();
+    const t = setTimeout(() => navigate("/"), 1600);
+    return () => clearTimeout(t);
+  }, [callEnded, navigate]);
 
   // Ringback tone (the caller's-side "brrring... brrring" while waiting)
   // — only for direct 1-1 calls, only while genuinely alone waiting, and
@@ -199,13 +219,13 @@ export default function GroupCall() {
   // is left.
   useEffect(() => {
     const stillAlone = Object.keys(participants).length === 0;
-    if (isDirectCall && stillAlone && !error) {
+    if (isDirectCall && stillAlone && !error && !callEnded) {
       startRingback();
     } else {
       stopRingtone();
     }
     return () => stopRingtone();
-  }, [isDirectCall, participants, error]);
+  }, [isDirectCall, participants, error, callEnded]);
   const [facingMode, setFacingMode] = useState("user");
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -412,6 +432,14 @@ export default function GroupCall() {
       setParticipants((prev) => {
         const next = { ...prev };
         delete next[userId];
+        // A 1-1 call has exactly one other participant — once they leave,
+        // the call is over for both sides, not just theirs. Previously
+        // this side just fell back into the "alone" branch, which for a
+        // direct call means the ringback tone restarted as if calling them
+        // fresh, leaving this user sitting in an empty call indefinitely.
+        if (isDirectCall && hadConnectedRef.current && Object.keys(next).length === 0) {
+          setCallEnded(true);
+        }
         return next;
       });
     };
@@ -747,9 +775,15 @@ export default function GroupCall() {
             <div className="absolute inset-x-0 top-20 md:top-24 flex justify-center px-4">
               <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
                 {isDirectCall ? (
-                  <p className="font-display text-lg md:text-xl font-semibold">
-                    Calling {directCallOtherName}…
-                  </p>
+                  callEnded ? (
+                    <p className="font-display text-lg md:text-xl font-semibold">
+                      Call ended — {directCallOtherName} disconnected
+                    </p>
+                  ) : (
+                    <p className="font-display text-lg md:text-xl font-semibold">
+                      Calling {directCallOtherName}…
+                    </p>
+                  )
                 ) : (
                   <>
                     <p className="text-sm text-white/60">Waiting for others to join…</p>

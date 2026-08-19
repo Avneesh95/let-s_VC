@@ -1,12 +1,28 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Paperclip, SendHorizonal, Loader2 } from "lucide-react";
 import api from "../api/axios";
+
+// Caps how tall the box can grow before it starts scrolling internally
+// instead — roughly 6 lines, matching WhatsApp's input behavior.
+const MAX_HEIGHT_PX = 128;
 
 export default function MessageInput({ onSend, onSendImage, onTyping, onStopTyping }) {
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
   const typingTimeout = useRef(null);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // Auto-grow to fit the content, capped at MAX_HEIGHT_PX (then it scrolls
+  // internally). Previously this was a plain single-line <input> — a
+  // multi-line message just scrolled its own text sideways/invisibly
+  // inside a fixed-height box instead of the box growing to show it.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto"; // shrink first so deleting text also shrinks the box back down
+    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
+  }, [text]);
 
   const handleChange = (e) => {
     setText(e.target.value);
@@ -18,12 +34,26 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
     }, 1200);
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const submit = () => {
     if (!text.trim()) return;
     onSend(text);
     setText("");
     onStopTyping();
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    submit();
+  };
+
+  // Enter sends, Shift+Enter inserts a newline — same convention as
+  // WhatsApp Web/Slack/etc. On mobile the on-screen keyboard's return key
+  // fires the same "Enter" key event, so it's handled identically there.
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
   };
 
   const handleFileSelect = async (e) => {
@@ -47,7 +77,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-surface px-3 py-2.5 border-t border-line/10">
+    <form onSubmit={handleSubmit} className="flex items-end gap-2 bg-surface px-3 py-2.5 border-t border-line/10">
       <input
         type="file"
         accept="image/*"
@@ -60,22 +90,24 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
         onClick={() => fileInputRef.current.click()}
         disabled={uploading}
         title="Send image"
-        className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-ink/45 hover:text-ink hover:bg-ink/5 disabled:opacity-50 transition-colors"
+        className="w-9 h-9 shrink-0 mb-0.5 rounded-full flex items-center justify-center text-ink/45 hover:text-ink hover:bg-ink/5 disabled:opacity-50 transition-colors"
       >
         {uploading ? <Loader2 className="w-4.5 h-4.5 animate-spin" strokeWidth={1.75} /> : <Paperclip className="w-4.5 h-4.5" strokeWidth={1.75} />}
       </button>
-      <input
-        type="text"
+      <textarea
+        ref={textareaRef}
+        rows={1}
         placeholder="Type a message..."
         value={text}
         onChange={handleChange}
-        className="flex-1 border border-line/15 bg-paper/50 rounded-full px-4 py-2.25 text-sm focus:outline-none focus:ring-2 focus:ring-brand/35 focus:border-brand transition-shadow"
+        onKeyDown={handleKeyDown}
+        className="flex-1 resize-none border border-line/15 bg-paper/50 rounded-[1.35rem] px-4 py-2.25 text-sm leading-normal max-h-32 overflow-y-auto thin-scrollbar focus:outline-none focus:ring-2 focus:ring-brand/35 focus:border-brand transition-shadow"
       />
       <button
         type="submit"
         disabled={!text.trim()}
         aria-label="Send message"
-        className="w-9 h-9 shrink-0 rounded-full bg-brand-gradient hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center shadow-neon-brand transition-all"
+        className="w-9 h-9 shrink-0 mb-0.5 rounded-full bg-brand-gradient hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center shadow-neon-brand transition-all"
       >
         <SendHorizonal className="w-4 h-4" strokeWidth={2} />
       </button>
