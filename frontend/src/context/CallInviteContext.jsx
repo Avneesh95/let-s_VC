@@ -20,6 +20,14 @@ export function CallInviteProvider({ children }) {
 
   const [incomingInvite, setIncomingInvite] = useState(null); // { from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }
   const activeNotification = useRef(null);
+  // Auto-clears a stuck ring if we never hear back at all (missed/dropped
+  // socket event) — belt-and-suspenders alongside the server's explicit
+  // "call-cancelled" push below, so a ring can never loop forever.
+  const ringTimeout = useRef(null);
+
+  // Matches a normal phone's ring window — long enough to actually notice
+  // and reach for the phone, short enough not to feel stuck.
+  const RING_TIMEOUT_MS = 45000;
 
   // Ask for notification permission once the user is actually logged in
   // (socket only exists once authenticated) — not on the public landing
@@ -50,6 +58,16 @@ export function CallInviteProvider({ children }) {
       setIncomingInvite({ from, roomCode, callerName, callerAvatarColor, callerAvatarUrl });
       startRingtone();
 
+      clearTimeout(ringTimeout.current);
+      ringTimeout.current = setTimeout(() => {
+        // Nothing declared this call resolved in time (caller never
+        // followed up, or a "call-cancelled"/response event got lost) —
+        // stop ringing rather than let it run indefinitely.
+        closeActiveNotification();
+        stopRingtone();
+        setIncomingInvite(null);
+      }, RING_TIMEOUT_MS);
+
       // Only bother with an OS-level notification if they're not already
       // looking at the tab — the in-app banner already covers that case,
       // and a redundant notification on top of a visible banner is just noise.
@@ -69,8 +87,27 @@ export function CallInviteProvider({ children }) {
       }
     };
 
+    // The caller hung up, closed the app, or lost connection before we
+    // answered — the server tells us so explicitly here rather than
+    // leaving the ringtone's setInterval running forever with no one on
+    // the other end.
+    const handleCallCancelled = ({ roomCode }) => {
+      setIncomingInvite((current) => {
+        if (!current || current.roomCode !== roomCode) return current;
+        clearTimeout(ringTimeout.current);
+        closeActiveNotification();
+        stopRingtone();
+        return null;
+      });
+    };
+
     socket.on("call-invite", handleInvite);
-    return () => socket.off("call-invite", handleInvite);
+    socket.on("call-cancelled", handleCallCancelled);
+    return () => {
+      socket.off("call-invite", handleInvite);
+      socket.off("call-cancelled", handleCallCancelled);
+      clearTimeout(ringTimeout.current);
+    };
   }, [socket]);
 
   const closeActiveNotification = () => {
@@ -100,6 +137,7 @@ export function CallInviteProvider({ children }) {
 
   const acceptInvite = () => {
     if (!incomingInvite) return;
+    clearTimeout(ringTimeout.current);
     closeActiveNotification();
     stopRingtone();
     socket.emit("call-invite-response", {
@@ -117,6 +155,7 @@ export function CallInviteProvider({ children }) {
 
   const declineInvite = () => {
     if (!incomingInvite) return;
+    clearTimeout(ringTimeout.current);
     closeActiveNotification();
     stopRingtone();
     socket.emit("call-invite-response", {

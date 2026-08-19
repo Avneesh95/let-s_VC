@@ -69,7 +69,23 @@ export default function Chat() {
         return prev;
       });
     };
-    const handleSent = (message) => setMessages((prev) => [...prev, message]);
+    const handleSent = (message) => {
+      // Guard like handleReceive does — without this, a "message-sent"
+      // echo that arrives after the user has already switched to a
+      // different contact (a real race: switching chats is instant, the
+      // server round-trip isn't) got appended to whichever conversation
+      // happened to be open when it landed, not the one it was actually
+      // sent in.
+      setMessages((prev) => {
+        if (
+          activeUser &&
+          (message.sender === activeUser._id || message.receiver === activeUser._id)
+        ) {
+          return [...prev, message];
+        }
+        return prev;
+      });
+    };
     const handleMessageError = ({ message }) => alert(message);
     const handleReactionUpdated = ({ messageId, reactions }) => {
       setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, reactions } : m)));

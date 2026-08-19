@@ -25,14 +25,26 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // @route  POST /api/auth/register
 router.post("/register", authLimiter, async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    let { username, email, password } = req.body;
+    // Normalize before any query/comparison — the User model lowercases
+    // email on save (see models/User.js), but a query built from the raw
+    // request body doesn't get that same treatment. Without this, "New@Example.com"
+    // sails past the duplicate-email check (a case-different existing row
+    // doesn't match), then fails at the unique-index level once Mongoose
+    // lowercases it right before saving — surfacing as a confusing generic
+    // "Server error" instead of "already in use". Trimming guards the same
+    // mismatch for a value with stray leading/trailing whitespace (e.g. a
+    // mobile keyboard's autocomplete or a pasted value).
+    username = username?.trim();
+    email = email?.trim().toLowerCase();
+
     if (!username || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
-    if (username.trim().length < 2) {
+    if (username.length < 2) {
       return res.status(400).json({ message: "Username must be at least 2 characters" });
     }
-    if (!EMAIL_RE.test(email.trim())) {
+    if (!EMAIL_RE.test(email)) {
       return res.status(400).json({ message: "Enter a valid email address" });
     }
     if (password.length < 6) {
@@ -65,7 +77,13 @@ router.post("/register", authLimiter, async (req, res) => {
 // @route  POST /api/auth/login
 router.post("/login", authLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+    // Same normalization as register — without it, an account created
+    // (or previously logged into) with different casing/whitespace than
+    // what's typed this time fails to match with a misleading "Invalid
+    // credentials", even though the password is actually correct.
+    email = email?.trim().toLowerCase();
+
     if (!email || !password) {
       return res.status(400).json({ message: "Email and password are required" });
     }

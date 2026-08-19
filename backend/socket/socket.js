@@ -101,11 +101,24 @@ async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarCo
 // reach the same in-memory online-users map and io instance this module
 // already owns, without a second source of truth for either.
 function relayCallDeclined(callerId, roomCode) {
+  pendingInvites.delete(roomCode);
   const targetSocketId = getSocketId(callerId);
   if (!targetSocketId || !ioInstance) return false;
   ioInstance.to(targetSocketId).emit("call-invite-response", { roomCode, accepted: false });
   return true;
 }
+
+// --- Pending call invites ---
+// Tracks every invite between "call-invite" and the moment it's resolved
+// (accepted, declined, or timed out) — purely so a disconnect mid-ring can
+// be cleaned up on the *other* end. Without this, if the caller closes the
+// app/loses connection while the callee's phone is still ringing, nothing
+// ever tells the callee to stop — the ringtone (a setInterval on their
+// side) runs forever until they manually decline. Symmetrically, if the
+// callee's device drops while ringing, the caller is left waiting on a
+// call that can now never be answered.
+// roomCode -> { callerId, calleeId }
+const pendingInvites = new Map();
 
 // --- Video rooms ---
 // Rooms are the single video-calling primitive in this app — a 1-1 "call"
@@ -275,6 +288,7 @@ function initSocket(io) {
       const targetSocketId = getSocketId(to);
       if (targetSocketId) {
         io.to(targetSocketId).emit("call-invite", { from: socket.userId, roomCode, ...callerInfo });
+        pendingInvites.set(roomCode, { callerId: socket.userId, calleeId: to });
         return;
       }
 
@@ -284,12 +298,15 @@ function initSocket(io) {
       // use for that case). Fall back to Web Push so their phone can still
       // ring them in, instead of just failing the call.
       const pushed = await sendCallPush(to, { from: socket.userId, roomCode, ...callerInfo });
-      if (!pushed) {
+      if (pushed) {
+        pendingInvites.set(roomCode, { callerId: socket.userId, calleeId: to });
+      } else {
         socket.emit("call-error", { message: "That user is offline" });
       }
     });
 
     socket.on("call-invite-response", ({ to, roomCode, accepted }) => {
+      pendingInvites.delete(roomCode);
       const targetSocketId = getSocketId(to);
       if (targetSocketId) {
         io.to(targetSocketId).emit("call-invite-response", { roomCode, accepted });
@@ -376,6 +393,35 @@ function initSocket(io) {
       if (socket.currentRoom) {
         leaveRoom(socket.currentRoom, socket.userId);
         socket.to(socket.currentRoom).emit("user-left-room", { userId: socket.userId });
+      }
+
+      // Resolve any call invite still ringing that involved this user, so
+      // it can't leave the other side hanging (or ringing) forever. Only
+      // acts if this user still has *no* other live connection — a user
+      // with a second tab/device open (see onlineUsers, a Set of socket
+      // ids) is still genuinely reachable, so their calls stay pending.
+      if (!onlineUsers.has(socket.userId)) {
+        for (const [roomCode, invite] of pendingInvites.entries()) {
+          if (invite.callerId === socket.userId) {
+            // Caller hung up/dropped before the callee answered — tell
+            // the callee's device to stop ringing.
+            pendingInvites.delete(roomCode);
+            const calleeSocketId = getSocketId(invite.calleeId);
+            if (calleeSocketId) io.to(calleeSocketId).emit("call-cancelled", { roomCode });
+          } else if (invite.calleeId === socket.userId) {
+            // Callee's device dropped while it was still ringing (locked
+            // phone, closed app, lost signal) — let the caller know rather
+            // than leaving them listening to a ringback that will never
+            // be answered. Reuses the existing decline event so the
+            // caller-side UI (already listening for it) handles it the
+            // same way as a real decline.
+            pendingInvites.delete(roomCode);
+            const callerSocketId = getSocketId(invite.callerId);
+            if (callerSocketId) {
+              io.to(callerSocketId).emit("call-invite-response", { roomCode, accepted: false });
+            }
+          }
+        }
       }
     });
   });

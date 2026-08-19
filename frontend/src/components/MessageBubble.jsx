@@ -6,10 +6,14 @@ const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 export default function MessageBubble({ message, isOwn, onReact, currentUserId }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const time = new Date(message.createdAt).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  // Guard against a missing/unparsable createdAt (e.g. a locally-built
+  // message that hasn't round-tripped through the server yet) — without
+  // this, toLocaleTimeString on an Invalid Date silently renders the
+  // literal text "Invalid Date" in the bubble instead of a time.
+  const parsedDate = new Date(message.createdAt);
+  const time = Number.isNaN(parsedDate.getTime())
+    ? ""
+    : parsedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   const reactions = message.reactions || [];
   // Group by emoji so multiple people reacting the same way show as one
@@ -26,8 +30,15 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
     setPickerOpen(false);
   };
 
+  const hasReactions = Object.keys(grouped).length > 0;
+
   return (
-    <div className={`flex mb-4 ${isOwn ? "justify-end" : "justify-start"} group relative`}>
+    // Reaction pills hang below the bubble via absolute positioning
+    // (see "-bottom-3" below) — the default mb-4 gap isn't tall enough to
+    // clear them, so they were visually overlapping the top of the next
+    // message bubble. Widening the gap only when reactions are actually
+    // present keeps normal messages tight.
+    <div className={`flex ${hasReactions ? "mb-7" : "mb-4"} ${isOwn ? "justify-end" : "justify-start"} group relative`}>
       <div className={`flex items-end gap-1 ${isOwn ? "flex-row-reverse" : ""}`}>
         <div
           className={`max-w-[78%] md:max-w-[60%] rounded-2xl px-3.5 py-2.5 relative shadow-sm ${

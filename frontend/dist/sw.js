@@ -1,5 +1,6 @@
 const CACHE_NAME = "chatapp-shell-v1";
 const PRECACHE_URLS = ["/", "/manifest.json"];
+const CONFIG_CACHE_KEY = "https://sw-config.local/api-base-url"; // synthetic — never actually fetched, just used as a Cache Storage key
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -16,6 +17,29 @@ self.addEventListener("activate", (event) => {
   );
   self.clients.claim();
 });
+
+// The page tells the service worker its own API base URL right after
+// registering (see main.jsx) — this is stashed in Cache Storage rather
+// than a plain in-memory variable because a service worker can be killed
+// by the browser and respawned later purely to handle a `push` event, with
+// no page open to re-send it. Cache Storage (unlike an in-memory variable)
+// survives that restart.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "SET_API_BASE_URL" || !event.data.apiBaseUrl) return;
+  event.waitUntil(
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.put(CONFIG_CACHE_KEY, new Response(JSON.stringify({ apiBaseUrl: event.data.apiBaseUrl }))))
+  );
+});
+
+async function getApiBaseUrl() {
+  const cache = await caches.open(CACHE_NAME);
+  const res = await cache.match(CONFIG_CACHE_KEY);
+  if (!res) return null;
+  const { apiBaseUrl } = await res.json();
+  return apiBaseUrl || null;
+}
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -64,7 +88,7 @@ self.addEventListener("push", (event) => {
   }
   if (payload.type !== "incoming-call") return;
 
-  const { roomCode, callerName, callerAvatarUrl } = payload;
+  const { roomCode, callerName, callerAvatarUrl, declineToken } = payload;
 
   event.waitUntil(
     self.registration.showNotification(`${callerName || "Someone"} is calling…`, {
@@ -74,7 +98,7 @@ self.addEventListener("push", (event) => {
       badge: "/icons/icon-192.png",
       vibrate: [300, 150, 300, 150, 300],
       requireInteraction: true, // stays up until the person acts, doesn't auto-dismiss
-      data: { roomCode, callerName },
+      data: { roomCode, callerName, declineToken },
       actions: [
         { action: "answer", title: "Answer" },
         { action: "decline", title: "Decline" },
@@ -84,10 +108,36 @@ self.addEventListener("push", (event) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
-  const { roomCode } = event.notification.data || {};
+  const { roomCode, declineToken } = event.notification.data || {};
   event.notification.close();
 
-  if (event.action === "decline" || !roomCode) return;
+  if (event.action === "decline") {
+    // Best-effort: let the caller's screen know right away instead of
+    // leaving them ringing until the call naturally times out. There's no
+    // live socket to send this over (that's why push was needed at all),
+    // so it goes through a REST endpoint authenticated by the short-lived
+    // token issued alongside this specific push (see sendCallPush in the
+    // backend). If this fails — offline device, expired token, anything —
+    // declining locally still closes the notification either way; the
+    // caller's own ring timeout is the fallback.
+    if (declineToken) {
+      event.waitUntil(
+        getApiBaseUrl()
+          .then((base) => {
+            if (!base) return;
+            return fetch(`${base}/calls/decline`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: declineToken }),
+            });
+          })
+          .catch(() => {})
+      );
+    }
+    return;
+  }
+
+  if (!roomCode) return;
 
   // "answer" or a plain tap on the notification body both join the call.
   const targetUrl = `/room/${roomCode}`;

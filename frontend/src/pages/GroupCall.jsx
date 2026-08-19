@@ -331,13 +331,22 @@ export default function GroupCall() {
     if (!socket) return;
 
     const handleExistingParticipants = async (list) => {
-      // We're the newcomer — introduce ourselves to everyone already here
+      // We're the newcomer — introduce ourselves to everyone already here.
+      // Each participant gets its own try/catch: one bad connection (e.g.
+      // their side just dropped mid-handshake) shouldn't stop us from
+      // still connecting to everyone else in the list — letting one
+      // failure throw out of the loop used to silently strand every
+      // participant after the failed one with no connection at all.
       for (const { userId, username } of list) {
         setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null } }));
-        const pc = createPeerConnection(userId);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit("room-offer", { to: userId, offer });
+        try {
+          const pc = createPeerConnection(userId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit("room-offer", { to: userId, offer });
+        } catch (err) {
+          console.error("Failed to create offer for", userId, err);
+        }
       }
     };
 
@@ -347,20 +356,38 @@ export default function GroupCall() {
     };
 
     const handleRoomOffer = async ({ from, offer }) => {
-      let pc = peerConnections.current.get(from);
-      if (!pc) pc = createPeerConnection(from);
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      await flushPending(from, pc);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("room-answer", { to: from, answer });
+      try {
+        let pc = peerConnections.current.get(from);
+        // A stale connection can still be sitting in the map from just
+        // before this same peer disconnected and reconnected (their
+        // "user-left-room" and this fresh offer can arrive close together).
+        // Reusing a closed/closing connection throws when we try to set a
+        // description on it, so start clean in that case instead of
+        // crashing the handler.
+        if (pc && pc.connectionState !== "new" && pc.signalingState === "closed") {
+          peerConnections.current.delete(from);
+          pc = null;
+        }
+        if (!pc) pc = createPeerConnection(from);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPending(from, pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("room-answer", { to: from, answer });
+      } catch (err) {
+        console.error("Failed to handle offer from", from, err);
+      }
     };
 
     const handleRoomAnswer = async ({ from, answer }) => {
-      const pc = peerConnections.current.get(from);
-      if (!pc) return;
-      await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      await flushPending(from, pc);
+      try {
+        const pc = peerConnections.current.get(from);
+        if (!pc || pc.signalingState === "closed") return;
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        await flushPending(from, pc);
+      } catch (err) {
+        console.error("Failed to handle answer from", from, err);
+      }
     };
 
     const handleIceCandidate = async ({ from, candidate }) => {
@@ -428,6 +455,49 @@ export default function GroupCall() {
       socket.off("room-chat-message", handleChatMessage);
     };
   }, [socket, createPeerConnection]);
+
+  // Recover from a dropped connection instead of leaving the call dead.
+  // A brief network blip (phone locks, wifi hiccups, tab backgrounds on
+  // mobile) disconnects the socket; the server immediately tells everyone
+  // else we left and they close their side's peer connection to us. If we
+  // don't re-announce ourselves once we're back, we're stuck: our own
+  // stale peer connections never recover, and no one else's do either —
+  // the call looks "crashed" even though the page never actually errored.
+  // Only reacts to a *reconnect* (disconnect having actually happened
+  // first), never the initial connection — that first join is already
+  // handled by the getUserMedia effect above, and re-running it here too
+  // would double-join and create duplicate peer connections.
+  useEffect(() => {
+    if (!socket || !user) return;
+    let didDisconnect = false;
+
+    const handleDisconnect = () => {
+      didDisconnect = true;
+    };
+
+    const handleReconnect = () => {
+      if (!didDisconnect) return;
+      didDisconnect = false;
+      if (!localStreamRef.current) return; // camera not even acquired yet — nothing to rejoin with
+
+      // Every existing peer connection is now stale (the other side has
+      // already torn theirs down) — close and clear them so the rejoin
+      // below starts every connection completely fresh instead of trying
+      // to reuse dead ones.
+      peerConnections.current.forEach((pc) => pc.close());
+      peerConnections.current.clear();
+      pendingCandidates.current.clear();
+      setParticipants({});
+      socket.emit("join-room", { roomCode, username: user.username });
+    };
+
+    socket.on("disconnect", handleDisconnect);
+    socket.on("connect", handleReconnect);
+    return () => {
+      socket.off("disconnect", handleDisconnect);
+      socket.off("connect", handleReconnect);
+    };
+  }, [socket, roomCode, user]);
 
   // Cleanup if the user navigates away (back button, closes tab via React unmount)
   useEffect(() => {
