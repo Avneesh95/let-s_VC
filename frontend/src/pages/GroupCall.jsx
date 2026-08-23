@@ -430,10 +430,28 @@ export default function GroupCall() {
   const staleConnectionTimers = useRef(new Map()); // userId -> "still not connected" timeout id
   const reconnectAttemptsLeft = useRef(new Map()); // userId -> automatic retries remaining
   const localStreamRef = useRef(null); // avoids stale closures inside socket handlers
+  // Mirrors `socket` for the same reason as localStreamRef above: the
+  // unmount-cleanup effect below intentionally has an empty dependency
+  // array (it must run its cleanup exactly once, on real unmount) — but
+  // that means whatever it closes over is frozen at whatever `socket` was
+  // during this component's *first* render. If GroupCall ever mounts
+  // before the socket is ready yet (a page refresh mid-call, or any
+  // timing where SocketProvider hasn't finished creating the socket by
+  // the time this component's function body first runs), that closure
+  // captures `null` forever — so `socket?.emit("leave-room")` on hang-up
+  // silently no-ops, the server never finds out this side left, and the
+  // other person's screen is left stuck on "Connecting…"/never told the
+  // call ended. Reading through a ref instead always sees the current
+  // socket at the moment of unmount, regardless of what it was at mount.
+  const socketRef = useRef(socket);
 
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
+
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
 
   const flushPending = async (userId, pc) => {
     const queue = pendingCandidates.current.get(userId) || [];
@@ -978,7 +996,12 @@ export default function GroupCall() {
   // Cleanup if the user navigates away (back button, closes tab via React unmount)
   useEffect(() => {
     return () => {
-      socket?.emit("leave-room");
+      // socketRef, not `socket` — see the comment by its declaration above.
+      // Using the closed-over `socket` here was the bug: this cleanup only
+      // ever runs once, using whatever `socket` was at the component's
+      // first render, so any time that was null the other side never got
+      // told this call ended.
+      socketRef.current?.emit("leave-room");
       peerConnections.current.forEach((pc) => pc.close());
       peerConnections.current.clear();
       pendingCandidates.current.clear();
