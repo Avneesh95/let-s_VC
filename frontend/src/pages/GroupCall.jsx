@@ -12,6 +12,8 @@ import {
   Link2,
   X,
   Send,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
@@ -86,6 +88,109 @@ function DraggableSelfView({ children, widthClass }) {
       style={{ top: pos.top, left: pos.left ?? undefined }}
     >
       {children}
+    </div>
+  );
+}
+
+// The floating bubble shown while the call is minimized (back button, or
+// the explicit minimize button). Draggable anywhere on screen like the
+// self-view PiP, but fixed to the viewport rather than a parent element
+// since it needs to float above the whole page. Tapping it restores the
+// full call screen; a small hang-up button lets you end the call directly
+// from the bubble without expanding first.
+function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onHangUp }) {
+  const videoRef = useRef(null);
+  const elRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0, moved: false });
+
+  useEffect(() => {
+    if (videoRef.current && stream) videoRef.current.srcObject = stream;
+  }, [stream]);
+
+  useEffect(() => {
+    const margin = 16;
+    const w = 112;
+    setPos({ left: window.innerWidth - w - margin, top: window.innerHeight - 150 - margin - 84 });
+  }, []);
+
+  const clamp = (left, top) => {
+    const el = elRef.current;
+    if (!el) return { left, top };
+    const rect = el.getBoundingClientRect();
+    return {
+      left: Math.max(0, Math.min(left, window.innerWidth - rect.width)),
+      top: Math.max(0, Math.min(top, window.innerHeight - rect.height)),
+    };
+  };
+
+  const onPointerDown = (e) => {
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: pos?.left ?? 0,
+      origTop: pos?.top ?? 0,
+      moved: false,
+    };
+    elRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+    setPos(clamp(dragRef.current.origLeft + dx, dragRef.current.origTop + dy));
+  };
+
+  const onPointerUp = (e) => {
+    const wasDrag = dragRef.current.moved;
+    dragRef.current.active = false;
+    elRef.current?.releasePointerCapture(e.pointerId);
+    // A tap (no real movement) restores the full call screen; a drag just
+    // repositions the bubble and shouldn't also expand it.
+    if (!wasDrag) onExpand();
+  };
+
+  if (!pos) return null;
+
+  return (
+    <div
+      ref={elRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      style={{ top: pos.top, left: pos.left }}
+      className="fixed z-50 w-28 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/70 bg-black cursor-grab active:cursor-grabbing touch-none select-none"
+    >
+      {stream && !cameraOff ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={muted}
+          className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+        />
+      ) : (
+        <div className="absolute inset-0 bg-callbg flex items-center justify-center">
+          <VideoOff className="w-6 h-6 text-white/45" strokeWidth={1.5} />
+        </div>
+      )}
+      <button
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onHangUp();
+        }}
+        title="Hang up"
+        className="absolute bottom-1.5 right-1.5 bg-danger hover:opacity-90 transition-opacity rounded-full p-1.5 shadow-lg"
+      >
+        <PhoneOff className="w-3.5 h-3.5" strokeWidth={2} />
+      </button>
+      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-sm rounded-full p-1">
+        <Maximize2 className="w-3 h-3 text-white/80" strokeWidth={2} />
+      </div>
     </div>
   );
 }
@@ -237,6 +342,7 @@ export default function GroupCall() {
   useEffect(() => {
     if (!callEnded) return;
     stopRingtone();
+    setIsMinimized(false); // surface the "Call ended" message even if it ended while minimized
     const t = setTimeout(() => navigate("/"), 1600);
     return () => clearTimeout(t);
   }, [callEnded, navigate]);
@@ -269,6 +375,10 @@ export default function GroupCall() {
   // Remembers the camera video track while screen sharing is active, so
   // stopping the share can restore the camera feed exactly as it was.
   const cameraTrackRef = useRef(null);
+  // Whether the call is shrunk to a small floating bubble. Distinct from
+  // actually leaving: the WebRTC connections, socket room membership, and
+  // local media tracks all stay exactly as they are — only the UI changes.
+  const [isMinimized, setIsMinimized] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]); // { senderId, username, text, timestamp }
   const [chatInput, setChatInput] = useState("");
@@ -605,6 +715,7 @@ export default function GroupCall() {
       // failure throw out of the loop used to silently strand every
       // participant after the failed one with no connection at all.
       for (const { userId, username } of list) {
+        hadConnectedRef.current = true;
         setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null, connState: "connecting" } }));
         reconnectAttemptsLeft.current.set(userId, 2);
         try {
@@ -621,6 +732,7 @@ export default function GroupCall() {
 
     const handleUserJoined = ({ userId, username }) => {
       // Just for the UI list — we don't initiate; they'll send us an offer
+      hadConnectedRef.current = true;
       setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null } }));
     };
 
@@ -819,6 +931,32 @@ export default function GroupCall() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The back button (or a phone's back gesture) used to unmount this page
+  // like any other navigation, which tore down the call — see the cleanup
+  // effect above. That's surprising: everywhere else in the app, back
+  // button behavior matches real apps, where leaving a call is a
+  // deliberate action, not an accidental swipe. So instead we seed one
+  // extra, invisible history entry the moment the call screen opens; the
+  // first "back" only pops that spare entry (the URL never actually
+  // changes), and we treat it as a request to minimize rather than a
+  // request to leave. Actually leaving still works fine — the Leave/hang
+  // up buttons navigate programmatically, which doesn't fire `popstate`
+  // at all, so this trap never interferes with them.
+  useEffect(() => {
+    window.history.pushState({ callGuard: true }, "", window.location.href);
+
+    const onPopState = () => {
+      // Re-seed immediately so every subsequent back press is caught the
+      // same way, not just the first — otherwise the second press would
+      // fall through and actually leave.
+      window.history.pushState({ callGuard: true }, "", window.location.href);
+      setIsMinimized(true);
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   // Manual retry button on a tile that's shown "Connection issue" — resets
   // the automatic-retry budget and tries again, same as the automatic path
   // but triggered on demand regardless of which side is the tie-break
@@ -857,6 +995,18 @@ export default function GroupCall() {
     setChatInput("");
   };
 
+  // Remembers which physical camera is actually in use — set whenever the
+  // active video track changes. switchCamera needs this to explicitly ask
+  // for a *different* device below; several phones (especially ones with
+  // more than one rear camera) silently ignore a bare facingMode hint and
+  // just hand back the exact same camera, which is why "switch camera"
+  // can look like it does nothing.
+  const currentVideoDeviceIdRef = useRef(null);
+  useEffect(() => {
+    const track = localStream?.getVideoTracks()[0];
+    currentVideoDeviceIdRef.current = track?.getSettings().deviceId || null;
+  }, [localStream]);
+
   const switchCamera = async () => {
     if (!localStream) return;
     const newFacingMode = facingMode === "user" ? "environment" : "user";
@@ -869,13 +1019,41 @@ export default function GroupCall() {
       // active can silently fail or hang.
       oldVideoTrack?.stop();
 
-      const newVideoStream = await navigator.mediaDevices.getUserMedia({
-        // "ideal" (not exact) lets the browser fall back gracefully if the
-        // requested camera isn't available, instead of hard-rejecting.
-        video: { facingMode: { ideal: newFacingMode } },
-        audio: false,
-      });
+      // Give the hardware a moment to actually release — on several
+      // Android devices, requesting getUserMedia again in the same tick
+      // as stop() re-grabs the same camera (or briefly errors) because
+      // the driver hasn't let go yet.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      let newVideoStream;
+      try {
+        // Ask for a specific, different device rather than just hinting
+        // with facingMode — this is what actually makes the switch
+        // reliable across phones with two+ rear cameras or with flaky
+        // facingMode support, where "ideal" alone often just returns
+        // whatever camera was already active.
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((d) => d.kind === "videoinput");
+        const nextDevice = videoInputs.find((d) => d.deviceId !== currentVideoDeviceIdRef.current);
+
+        if (!nextDevice) {
+          throw new Error("Only one camera available");
+        }
+
+        newVideoStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: nextDevice.deviceId } },
+          audio: false,
+        });
+      } catch {
+        // Fall back to the softer facingMode hint — covers browsers that
+        // don't expose device labels/ids reliably.
+        newVideoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: newFacingMode } },
+          audio: false,
+        });
+      }
       const newVideoTrack = newVideoStream.getVideoTracks()[0];
+      currentVideoDeviceIdRef.current = newVideoTrack.getSettings().deviceId || null;
 
       // Unlike a 1-1 call there isn't just one connection to update — swap
       // the outgoing video track on every peer connection in the room at
@@ -1031,6 +1209,23 @@ export default function GroupCall() {
     );
   }
 
+  if (isMinimized) {
+    // Prefer showing whoever you're talking to (more useful at a glance
+    // than your own face); fall back to the self view when alone in the
+    // room or if that stream isn't ready yet.
+    const other = otherParticipants[0]?.[1];
+    return (
+      <MinimizedCallBubble
+        stream={other?.stream || localStream}
+        muted={!other}
+        cameraOff={other ? false : !isCameraOn}
+        mirrored={!other && facingMode === "user" && !isScreenSharing}
+        onExpand={() => setIsMinimized(false)}
+        onHangUp={leaveRoom}
+      />
+    );
+  }
+
   // Self tile, used consistently across the 4/5/6-person grid branches
   const selfTile = (
     <VideoTile
@@ -1182,6 +1377,7 @@ export default function GroupCall() {
         className={`absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/70 via-black/25 to-transparent px-3 md:px-4 pt-3 pb-8 flex items-center justify-between gap-2 transition-opacity duration-300 ${
           controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
         <div className="flex items-baseline gap-2 md:gap-3 min-w-0">
           {isDirectCall ? (
@@ -1213,6 +1409,13 @@ export default function GroupCall() {
               <span className="hidden sm:inline">Copy Link</span>
             </button>
           )}
+          <button
+            onClick={() => setIsMinimized(true)}
+            title="Minimize"
+            className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg p-1.5 md:px-2.5 md:py-1.5 flex items-center gap-1.5"
+          >
+            <Minimize2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+          </button>
           <button
             onClick={leaveRoom}
             className="text-xs md:text-sm bg-danger hover:opacity-90 transition-opacity rounded-lg px-2.5 md:px-3 py-1.5"
@@ -1269,6 +1472,7 @@ export default function GroupCall() {
         className={`absolute bottom-0 inset-x-0 z-30 bg-gradient-to-t from-black/70 via-black/25 to-transparent pt-8 pb-4 md:pb-5 flex items-center justify-center gap-2 md:gap-3 transition-opacity duration-300 ${
           controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
+        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       >
         <button
           onClick={toggleMic}
