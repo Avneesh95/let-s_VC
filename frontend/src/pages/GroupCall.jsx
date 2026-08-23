@@ -165,23 +165,28 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
       style={{ top: pos.top, left: pos.left }}
       className="fixed z-50 w-28 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/70 bg-black cursor-grab active:cursor-grabbing touch-none select-none"
     >
-      {stream && !cameraOff ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={muted}
-          className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
-        />
-      ) : (
-        // Previously a plain near-black box with a faint video-off icon —
-        // easy to misread as a broken/dead bubble, especially at this
-        // small size. This only shows when there's genuinely no video to
-        // display yet (no one else has joined, or both cameras are off);
-        // whenever the other participant's stream is available it's
-        // preferred over the local one (see the `stream` prop passed in
-        // below), so this branded fallback — not a bare black box — is
-        // what shows instead of "nothing."
+      {/* The <video> element stays mounted whenever a stream exists at
+          all, with the placeholder overlaid on top rather than swapped
+          in for it. GroupCall's VideoTile hit this exact bug already
+          (see the comment there): a <video> that unmounts/remounts based
+          on a condition OTHER than `stream` itself (here, `cameraOff`)
+          doesn't get srcObject reassigned on remount, because the
+          binding effect only reruns when the `stream` reference changes
+          — so a freshly-remounted element stays blank/black even though
+          a perfectly good stream is available. Overlaying instead of
+          swapping means the same <video> node persists across cameraOff
+          toggles, so it can never end up unbound. */}
+      {stream && <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""} ${cameraOff ? "invisible" : ""}`}
+      />}
+      {(!stream || cameraOff) && (
+        // Shows whenever there's genuinely no video to display yet (no
+        // one else has joined, or both cameras are off) — a branded
+        // fallback instead of a bare black box.
         <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-2 px-2">
           <Logo size="sm" onDark className="scale-90" />
           <span className="text-white/35 text-[9px] leading-none tracking-wide">by Avneesh</span>

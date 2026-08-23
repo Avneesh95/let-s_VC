@@ -174,7 +174,16 @@ export default function Chat() {
 
   return (
     <div className="flex h-dvh md:h-screen">
-      <div className={`${activeUser ? "hidden md:flex" : "flex"} w-full md:w-auto`}>
+      {/* min-h-0 on both panes: a flex item's default min-height is "auto",
+          not 0, which means it refuses to shrink below its own content's
+          natural height even though it's inside a height-constrained flex
+          row. Without this, a long contact list or long conversation just
+          grows the whole pane past the viewport instead of scrolling
+          inside it — the outer page scrolls (or nothing does, and content
+          gets clipped) instead of the intended inner scroll area. This
+          happens identically on mobile and desktop; it's a CSS flexbox
+          default, not a mobile-only quirk. */}
+      <div className={`${activeUser ? "hidden md:flex" : "flex"} w-full md:w-auto min-h-0`}>
         <Sidebar
           users={users}
           activeUser={activeUser}
@@ -187,7 +196,7 @@ export default function Chat() {
           onRejectRequest={handleRejectRequest}
         />
       </div>
-      <div className={`${activeUser ? "flex" : "hidden md:flex"} flex-1`}>
+      <div className={`${activeUser ? "flex" : "hidden md:flex"} flex-1 min-h-0`}>
         <ChatWindow
           activeUser={activeUser}
           messages={messages}

@@ -44,7 +44,7 @@ export default function ChatWindow({
     : "User is offline";
 
   return (
-    <div className="flex-1 flex flex-col bg-chatbg w-full">
+    <div className="flex-1 flex flex-col bg-chatbg w-full min-h-0">
       <div className="flex items-center gap-3 bg-surface px-4 py-3 border-b border-line/10 font-semibold shadow-sm shadow-black/[0.02] z-10">
         <button
           onClick={onBack}
@@ -72,7 +72,7 @@ export default function ChatWindow({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto thin-scrollbar p-4 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar p-4 flex flex-col">
         {messages.map((m) => (
           <MessageBubble key={m._id} message={m} isOwn={m.sender === currentUserId} onReact={onReact} currentUserId={currentUserId} />
         ))}

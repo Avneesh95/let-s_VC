@@ -136,7 +136,7 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="w-full md:w-[300px] bg-surface border-r border-line/10 flex flex-col shrink-0">
+    <aside className="w-full md:w-[300px] bg-surface border-r border-line/10 flex flex-col shrink-0 min-h-0">
       <div className="px-4 py-3.5 border-b border-line/10 flex items-center justify-between">
         <Logo size="sm" />
         <div className="flex items-center gap-0.5">
@@ -226,14 +226,14 @@ export default function Sidebar({
             </button>
           </div>
         ) : (
-          <ul className="flex-1 overflow-y-auto thin-scrollbar py-2">
+          <ul className="flex-1 min-h-0 overflow-y-auto thin-scrollbar py-2">
             {friends.map((u) => (
               <ChatRow key={u._id} u={u} isActive={activeUser?._id === u._id} onSelect={onSelect} />
             ))}
           </ul>
         )
       ) : (
-        <div className="flex-1 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-2">
+        <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-2">
           {userList.length === 0 ? (
             <p className="text-sm text-ink/60 text-center mt-4">No one else has joined yet.</p>
           ) : (
