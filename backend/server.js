@@ -59,10 +59,22 @@ const io = new Server(server, {
   // frontend/src/context/SocketContext.jsx for why WebSocket upgrade was
   // disabled in favor of staying on HTTP long-polling.
   transports: ["polling"],
-  // More tolerant of brief WiFi drops (e.g. phone screen lock, laptop sleep)
-  // so presence doesn't flicker offline/online from a momentary blip.
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  // Tolerant of brief WiFi drops (e.g. phone screen lock, laptop sleep) so
+  // presence doesn't flicker offline/online from a momentary blip, but not
+  // so tolerant that an actually-ended call sits there looking "connected"
+  // for ages. The previous values here (60000/25000) meant a hard drop —
+  // app force-closed, signal lost, battery died — could take up to ~85s
+  // (pingInterval + pingTimeout) for the server to notice and tell the
+  // other side the call had ended; that delay is exactly what showed up as
+  // "disconnecting takes time" on 1-1 calls. 10s/20s still rides out a
+  // normal screen-lock or a few seconds of dead wifi (reconnection is
+  // automatic — see SocketContext.jsx), while capping the worst case at
+  // ~30s. The graceful-exit path (closing the tab, hitting Leave) is
+  // already instant via the explicit "leave-room" emit — see the
+  // `pagehide` handler in GroupCall.jsx — so this timeout only matters for
+  // genuinely abrupt drops.
+  pingTimeout: 20000,
+  pingInterval: 10000,
 });
 
 connectDB();

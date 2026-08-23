@@ -609,8 +609,38 @@ export default function GroupCall() {
         reconnectAttemptsLeft.current.set(remoteUserId, 2);
         setParticipants((prev) => ({
           ...prev,
-          [remoteUserId]: { ...(prev[remoteUserId] || {}), stream: event.streams[0], connState: "connected" },
+          [remoteUserId]: {
+            ...(prev[remoteUserId] || {}),
+            stream: event.streams[0],
+            connState: "connected",
+            // A freshly-received video track is very often still `muted`
+            // for the first moment or two (no frames decoded yet) — this
+            // was rendering as a plain black rectangle indistinguishable
+            // from broken, which is exactly what "minimize shows a blank
+            // screen" and "the caller's tile is just black" reports were.
+            // Seed the real state here so the UI can show the "Connecting…"
+            // placeholder instead of a false black frame.
+            ...(event.track.kind === "video" ? { remoteCameraOff: event.track.muted } : {}),
+          },
         }));
+
+        // Track the other side actually turning their camera on/off for as
+        // long as this connection lives — a MediaStreamTrack fires `mute`
+        // when its source stops delivering frames (camera disabled on
+        // their end, or the connection briefly stalls) and `unmute` the
+        // moment frames resume. Without listening for this, our UI had no
+        // way to distinguish "their camera is off" from "still blank/
+        // broken", so it always assumed video was showing even when the
+        // track was silently muted.
+        if (event.track.kind === "video") {
+          const setCameraOff = (off) => {
+            setParticipants((prev) =>
+              prev[remoteUserId] ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], remoteCameraOff: off } } : prev
+            );
+          };
+          event.track.onmute = () => setCameraOff(true);
+          event.track.onunmute = () => setCameraOff(false);
+        }
         // Voice lag fix: by default a browser's jitter buffer adapts its
         // target delay upward whenever the network looks congested or
         // jittery — trading latency for smoothness. That's the right
@@ -703,7 +733,7 @@ export default function GroupCall() {
           const others = Math.max(1, roomSizeRef.current - 1);
           const { capBps, scaleDownBy } =
             others <= 1
-              ? { capBps: 2500000, scaleDownBy: 1 }
+              ? { capBps: 3500000, scaleDownBy: 1 }
               : others <= 3
               ? { capBps: 1200000, scaleDownBy: 1.5 }
               : { capBps: 700000, scaleDownBy: 2 };
@@ -1042,6 +1072,23 @@ export default function GroupCall() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // Closing the tab, refreshing, or navigating away by URL doesn't run our
+  // React cleanup in time to tell the other side — they were left waiting
+  // on a socket-level ping timeout (tens of seconds) to notice the drop,
+  // which is exactly the "hanging up takes forever" symptom. `pagehide`
+  // fires reliably in this situation (unlike `beforeunload`, which mobile
+  // browsers often skip entirely), so send the leave signal there —
+  // best-effort, since the page can still disappear mid-request, but it
+  // turns the common "closed the app/tab" case into an instant hang-up
+  // instead of a 30-60s wait on the other end.
+  useEffect(() => {
+    const onPageHide = () => {
+      socketRef.current?.emit("leave-room");
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
+
   // Manual retry button on a tile that's shown "Connection issue" — resets
   // the automatic-retry budget and tries again, same as the automatic path
   // but triggered on demand regardless of which side is the tie-break
@@ -1367,7 +1414,7 @@ export default function GroupCall() {
       <MinimizedCallBubble
         stream={other?.stream || localStream}
         muted={!other}
-        cameraOff={other ? false : !isCameraOn}
+        cameraOff={other ? !!other.remoteCameraOff : !isCameraOn}
         mirrored={!other && facingMode === "user" && !isScreenSharing}
         onExpand={() => setIsMinimized(false)}
         onHangUp={leaveRoom}
@@ -1442,6 +1489,7 @@ export default function GroupCall() {
               stream={otherParticipants[0][1].stream}
               label={otherParticipants[0][1].username}
               connState={otherParticipants[0][1].connState}
+              cameraOff={otherParticipants[0][1].remoteCameraOff}
               onRetry={() => manualRetry(otherParticipants[0][0])}
               fullSize
             />
@@ -1470,6 +1518,7 @@ export default function GroupCall() {
                 stream={otherParticipants[0][1].stream}
                 label={otherParticipants[0][1].username}
                 connState={otherParticipants[0][1].connState}
+                cameraOff={otherParticipants[0][1].remoteCameraOff}
                 onRetry={() => manualRetry(otherParticipants[0][0])}
               />
             </div>
@@ -1479,6 +1528,7 @@ export default function GroupCall() {
                   stream={otherParticipants[1][1].stream}
                   label={otherParticipants[1][1].username}
                   connState={otherParticipants[1][1].connState}
+                  cameraOff={otherParticipants[1][1].remoteCameraOff}
                   onRetry={() => manualRetry(otherParticipants[1][0])}
                 />
               </div>
@@ -1496,6 +1546,7 @@ export default function GroupCall() {
                 stream={p.stream}
                 label={p.username}
                 connState={p.connState}
+                cameraOff={p.remoteCameraOff}
                 onRetry={() => manualRetry(userId)}
               />
             ))}
@@ -1513,6 +1564,7 @@ export default function GroupCall() {
                 stream={p.stream}
                 label={p.username}
                 connState={p.connState}
+                cameraOff={p.remoteCameraOff}
                 onRetry={() => manualRetry(userId)}
               />
             ))}

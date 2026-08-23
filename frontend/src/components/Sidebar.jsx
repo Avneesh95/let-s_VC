@@ -58,7 +58,7 @@ function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectReques
 }
 
 // A chat row — a friend you can click straight into a conversation with.
-function ChatRow({ u, isActive, onSelect }) {
+function ChatRow({ u, isActive, onSelect, unreadCount }) {
   return (
     <li
       onClick={() => onSelect(u)}
@@ -68,8 +68,15 @@ function ChatRow({ u, isActive, onSelect }) {
     >
       <Avatar user={u} />
       <span className="flex flex-col min-w-0 flex-1">
-        <span className="font-medium text-ink truncate text-[0.925rem]">{u.username}</span>
+        <span className={`truncate text-[0.925rem] ${unreadCount ? "font-semibold text-ink" : "font-medium text-ink"}`}>
+          {u.username}
+        </span>
       </span>
+      {!!unreadCount && (
+        <span className="shrink-0 bg-brand text-white text-[10px] font-semibold min-w-[1.125rem] h-4.5 px-1 rounded-full flex items-center justify-center">
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      )}
     </li>
   );
 }
@@ -110,6 +117,7 @@ export default function Sidebar({
   onAddFriend,
   onAcceptRequest,
   onRejectRequest,
+  unreadCounts = {},
 }) {
   const userList = Array.isArray(users) ? users : [];
   const navigate = useNavigate();
@@ -119,6 +127,7 @@ export default function Sidebar({
 
   const friends = userList.filter((u) => u.friendStatus === "friends");
   const pendingReceivedCount = userList.filter((u) => u.friendStatus === "request-received").length;
+  const totalUnreadCount = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
 
   const startGroupCall = () => {
     navigate(`/room/${generateRoomCode()}`);
@@ -190,11 +199,16 @@ export default function Sidebar({
       <div className="flex px-3 pt-3 gap-1">
         <button
           onClick={() => setTab("chats")}
-          className={`flex-1 text-sm font-medium rounded-xl py-2 transition-colors inline-flex items-center justify-center gap-1.5 ${
+          className={`relative flex-1 text-sm font-medium rounded-xl py-2 transition-colors inline-flex items-center justify-center gap-1.5 ${
             tab === "chats" ? "bg-brand text-white shadow-sm" : "text-ink/70 hover:bg-ink/5"
           }`}
         >
           <MessageCircle className="w-3.5 h-3.5" strokeWidth={1.75} /> Chats
+          {totalUnreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-gold text-callbg text-[10px] font-semibold w-4.5 h-4.5 rounded-full flex items-center justify-center ring-2 ring-surface">
+              {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setTab("find")}
@@ -228,7 +242,13 @@ export default function Sidebar({
         ) : (
           <ul className="flex-1 min-h-0 overflow-y-auto thin-scrollbar py-2">
             {friends.map((u) => (
-              <ChatRow key={u._id} u={u} isActive={activeUser?._id === u._id} onSelect={onSelect} />
+              <ChatRow
+                key={u._id}
+                u={u}
+                isActive={activeUser?._id === u._id}
+                onSelect={onSelect}
+                unreadCount={unreadCounts[u._id]}
+              />
             ))}
           </ul>
         )

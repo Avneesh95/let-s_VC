@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { useCallInvite } from "../context/CallInviteContext";
+import { requestNotificationPermission, showNotification } from "../utils/notifications";
+import { playMessageTone } from "../utils/ringtone";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 
@@ -15,6 +17,44 @@ export default function Chat() {
   const [activeUser, setActiveUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
+  // Per-sender unread counts, shown as a badge in the sidebar — the part
+  // that was missing entirely before: a message for a contact you weren't
+  // currently looking at just silently landed with nothing to tell you it
+  // arrived.
+  const [unreadCounts, setUnreadCounts] = useState({});
+  // Mirrors activeUser/document focus into a ref so the socket listener
+  // (registered once per activeUser change) always reads the *current*
+  // tab-visibility at the moment a message arrives, not whatever it was
+  // when the listener was attached.
+  const activeUserRef = useRef(activeUser);
+  useEffect(() => {
+    activeUserRef.current = activeUser;
+  }, [activeUser]);
+
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
+  // Clear the unread badge for whoever's open the moment the tab comes
+  // back into focus — covers the case where a message arrived while this
+  // conversation was already open but the tab/app was backgrounded, so it
+  // was correctly counted as unread but the person is looking right at it
+  // now.
+  useEffect(() => {
+    const onVisible = () => {
+      const current = activeUserRef.current;
+      if (document.visibilityState === "visible" && current) {
+        setUnreadCounts((prev) => {
+          if (!prev[current._id]) return prev;
+          const next = { ...prev };
+          delete next[current._id];
+          return next;
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   // Load contact list, reusable so friend actions can refresh it
   const refreshUsers = useCallback(() => {
@@ -59,6 +99,13 @@ export default function Chat() {
     if (!socket) return;
 
     const handleReceive = (message) => {
+      const isOpenConversation = activeUser && message.sender === activeUser._id;
+      // "Open" isn't enough on its own — if the tab is backgrounded/
+      // minimized the person still hasn't actually seen it, so it should
+      // count as unread and still notify, same as a message from someone
+      // else entirely.
+      const isSeen = isOpenConversation && document.visibilityState === "visible";
+
       setMessages((prev) => {
         if (
           activeUser &&
@@ -68,6 +115,24 @@ export default function Chat() {
         }
         return prev;
       });
+
+      if (!isSeen && message.sender !== user.id) {
+        setUnreadCounts((prev) => ({ ...prev, [message.sender]: (prev[message.sender] || 0) + 1 }));
+        playMessageTone();
+        if (document.visibilityState !== "visible") {
+          const senderUser = users.find((u) => u._id === message.sender);
+          const notif = showNotification(`${senderUser?.username || "New message"}`, {
+            body: message.type === "image" ? "Sent a photo" : message.text,
+            tag: `chat-${message.sender}`,
+          });
+          if (notif) {
+            notif.onclick = () => {
+              window.focus();
+              notif.close();
+            };
+          }
+        }
+      }
     };
     const handleSent = (message) => {
       // Guard like handleReceive does — without this, a "message-sent"
@@ -112,7 +177,7 @@ export default function Chat() {
       socket.off("typing", handleTyping);
       socket.off("stop-typing", handleStopTyping);
     };
-  }, [socket, activeUser]);
+  }, [socket, activeUser, users, user.id]);
 
   const handleAddFriend = async (userId) => {
     try {
@@ -187,7 +252,16 @@ export default function Chat() {
         <Sidebar
           users={users}
           activeUser={activeUser}
-          onSelect={setActiveUser}
+          unreadCounts={unreadCounts}
+          onSelect={(u) => {
+            setActiveUser(u);
+            setUnreadCounts((prev) => {
+              if (!prev[u._id]) return prev;
+              const next = { ...prev };
+              delete next[u._id];
+              return next;
+            });
+          }}
           onlineUsers={onlineUsers}
           currentUser={user}
           onLogout={logout}

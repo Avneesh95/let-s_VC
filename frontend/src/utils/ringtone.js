@@ -69,3 +69,20 @@ export function startRingback() {
 export function stopRingtone() {
   stop();
 }
+
+// A single short, quiet chime for an incoming chat message — clearly
+// distinct from the call tones above (higher, shorter, no repeat) so it
+// reads as "message" at a glance/listen rather than "someone's calling".
+export function playMessageTone() {
+  const ctx = getContext();
+  if (!ctx) return;
+  const gain = ctx.createGain();
+  gain.gain.value = 0.1;
+  gain.connect(ctx.destination);
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.value = 880;
+  osc.connect(gain);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.12);
+}
