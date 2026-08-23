@@ -12,7 +12,7 @@ const SIZES = {
   lg: { mark: "w-12 h-12 rounded-2xl", glyph: "w-6 h-6", text: "text-2xl md:text-3xl" },
 };
 
-export default function Logo({ size = "md", className = "" }) {
+export default function Logo({ size = "md", className = "", onDark = false }) {
   const s = SIZES[size] || SIZES.md;
 
   return (
@@ -34,8 +34,17 @@ export default function Logo({ size = "md", className = "" }) {
           />
         </svg>
       </span>
-      <span className={`font-display font-semibold tracking-tight text-ink ${s.text}`}>
-        Peer<span className="text-brand dark:text-brand-light">ly</span>
+      {/*
+        text-ink follows the light/dark theme toggle, which is correct
+        everywhere else the logo appears — but the video-call screens are
+        always dark regardless of that toggle (see callbg in
+        tailwind.config.js), so in light mode "text-ink" would render
+        near-black wordmark text on a near-black background and vanish.
+        The onDark prop opts into a fixed light wordmark instead, for
+        exactly those always-dark surfaces.
+      */}
+      <span className={`font-display font-semibold tracking-tight ${onDark ? "text-white" : "text-ink"} ${s.text}`}>
+        Peer<span className={onDark ? "text-brand-light" : "text-brand dark:text-brand-light"}>ly</span>
       </span>
     </span>
   );

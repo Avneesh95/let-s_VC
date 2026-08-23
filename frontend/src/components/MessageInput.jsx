@@ -47,10 +47,15 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
   };
 
   // Enter sends, Shift+Enter inserts a newline — same convention as
-  // WhatsApp Web/Slack/etc. On mobile the on-screen keyboard's return key
-  // fires the same "Enter" key event, so it's handled identically there.
+  // WhatsApp Web/Slack/etc. On mobile, virtual keyboards (Gboard, Samsung
+  // Keyboard, etc.) route word-suggestion/autocomplete acceptance through
+  // the same "Enter" keydown while text is still mid-composition
+  // (e.isComposing / keyCode 229). Without the isComposing guard, tapping
+  // a suggested word — which fires Enter internally — sent the message
+  // early instead of just accepting the suggestion. This was the core of
+  // the "text box doesn't work well on phone" bug.
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
     }
@@ -77,7 +82,11 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-end gap-2 bg-surface px-3 py-2.5 border-t border-line/10">
+    <form
+      onSubmit={handleSubmit}
+      className="flex items-end gap-2 bg-surface px-3 py-2.5 border-t border-line/10"
+      style={{ paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}
+    >
       <input
         type="file"
         accept="image/*"
@@ -101,7 +110,14 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
         value={text}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="flex-1 resize-none border border-line/15 bg-paper/50 rounded-[1.35rem] px-4 py-2.25 text-sm leading-normal max-h-32 overflow-y-auto thin-scrollbar focus:outline-none focus:ring-2 focus:ring-brand/35 focus:border-brand transition-shadow"
+        // text-base (16px) is deliberate, not a style nitpick: any
+        // input/textarea under 16px font-size makes iOS Safari
+        // auto-zoom the whole page on focus, which is exactly what
+        // "phone text box behaves badly" looks like from the outside —
+        // the viewport jumps and stays zoomed until the user manually
+        // pinches back out. Shrinks back to text-sm on desktop where
+        // that bug doesn't exist.
+        className="flex-1 resize-none border border-line/15 bg-paper/50 rounded-[1.35rem] px-4 py-2.25 text-base md:text-sm leading-normal max-h-32 overflow-y-auto thin-scrollbar focus:outline-none focus:ring-2 focus:ring-brand/35 focus:border-brand transition-shadow"
       />
       <button
         type="submit"

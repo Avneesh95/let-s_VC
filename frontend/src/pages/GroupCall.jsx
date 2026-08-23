@@ -19,6 +19,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
 import { startRingback, stopRingtone } from "../utils/ringtone";
+import Logo from "../components/Logo";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
@@ -173,8 +174,17 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
           className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
         />
       ) : (
-        <div className="absolute inset-0 bg-callbg flex items-center justify-center">
-          <VideoOff className="w-6 h-6 text-white/45" strokeWidth={1.5} />
+        // Previously a plain near-black box with a faint video-off icon —
+        // easy to misread as a broken/dead bubble, especially at this
+        // small size. This only shows when there's genuinely no video to
+        // display yet (no one else has joined, or both cameras are off);
+        // whenever the other participant's stream is available it's
+        // preferred over the local one (see the `stream` prop passed in
+        // below), so this branded fallback — not a bare black box — is
+        // what shows instead of "nothing."
+        <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-2 px-2">
+          <Logo size="sm" onDark className="scale-90" />
+          <span className="text-white/35 text-[9px] leading-none tracking-wide">by Avneesh</span>
         </div>
       )}
       <button
@@ -602,15 +612,41 @@ export default function GroupCall() {
 
       localStreamRef.current?.getTracks().forEach((track) => {
         const sender = pc.addTrack(track, localStreamRef.current);
+
+        // Prefer VP9 over VP8 when the browser supports codec selection
+        // (Chromium-based browsers; Safari/Firefox fall through safely).
+        // VP9 encodes noticeably cleaner video at the same bitrate — since
+        // mesh WebRTC forces us to cap bitrate hard as the room grows (see
+        // below), getting more picture quality per bit matters more here
+        // than in a typical SFU app. Must happen before createOffer()
+        // generates SDP, which is why this runs synchronously right after
+        // addTrack rather than after the connection is established.
+        if (track.kind === "video" && typeof RTCRtpTransceiver !== "undefined" && "setCodecPreferences" in RTCRtpTransceiver.prototype) {
+          try {
+            const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
+            const { codecs } = RTCRtpSender.getCapabilities("video") || {};
+            if (transceiver && codecs?.length) {
+              const vp9 = codecs.filter((c) => c.mimeType === "video/VP9");
+              const rest = codecs.filter((c) => c.mimeType !== "video/VP9");
+              if (vp9.length) transceiver.setCodecPreferences([...vp9, ...rest]);
+            }
+          } catch (err) {
+            // Not fatal — falls back to the browser's default codec choice.
+          }
+        }
+
         // Voice quality: browsers default a WebRTC audio track to a fairly
-        // low bitrate tuned for narrowband speech (~32kbps). Raising the
-        // cap gives Opus noticeably more headroom for clarity at a
-        // trivial bandwidth cost — cheap to do, easy to miss.
+        // low bitrate tuned for narrowband speech (~32kbps). 128kbps opus
+        // (mono — this is a voice call, not music, so stereo would just
+        // double the data for no audible gain) is effectively transparent
+        // for voice and costs almost nothing: unlike video, audio bandwidth
+        // doesn't meaningfully scale with room size, so there's no reason
+        // to keep it capped low the way video has to be.
         if (track.kind === "audio") {
           try {
             const params = sender.getParameters();
             if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-            params.encodings[0].maxBitrate = 64000;
+            params.encodings[0].maxBitrate = 128000;
             sender.setParameters(params).catch(() => {});
           } catch (err) {
             // Not fatal — some browsers don't support setParameters this
@@ -628,20 +664,31 @@ export default function GroupCall() {
         // 5-20mbps, and mobile uplinks are often far less). When upload
         // saturates, packets queue and audio — sharing the same
         // congested link — is what visibly lags, even though it's the
-        // video that's actually causing the congestion. Capping video
-        // bitrate, and capping it harder as the room grows, keeps total
-        // upload within what typical connections can actually sustain so
-        // audio doesn't get stuck behind it. A real SFU-based app (see
-        // the WhatsApp/imo comparison in iceServers.js) doesn't hit this
-        // at all, since each device uploads only once regardless of room
-        // size — the server does the fan-out.
+        // video that's actually causing the congestion. A real SFU-based
+        // app (see the WhatsApp/imo comparison in iceServers.js) doesn't
+        // hit this at all, since each device uploads only once regardless
+        // of room size — the server does the fan-out.
+        //
+        // HD tiers: 1-1 calls get a real 1080p-grade cap (only one
+        // outbound stream, most home/mobile uplinks handle this fine).
+        // Small groups get a solid 720p cap. Larger rooms get both a
+        // lower bitrate cap *and* a resolution scale-down — sending full
+        // 1080p pixels at a bitrate that can't actually carry them just
+        // produces a blocky 1080p frame, not an HD one; matching
+        // resolution to bitrate is what actually looks sharp.
         if (track.kind === "video") {
           const others = Math.max(1, roomSizeRef.current - 1);
-          const capBps = others <= 1 ? 700000 : others <= 3 ? 400000 : 250000;
+          const { capBps, scaleDownBy } =
+            others <= 1
+              ? { capBps: 2500000, scaleDownBy: 1 }
+              : others <= 3
+              ? { capBps: 1200000, scaleDownBy: 1.5 }
+              : { capBps: 700000, scaleDownBy: 2 };
           try {
             const params = sender.getParameters();
             if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
             params.encodings[0].maxBitrate = capBps;
+            params.encodings[0].scaleResolutionDownBy = scaleDownBy;
             sender.setParameters(params).catch(() => {});
           } catch (err) {
             // Not fatal — falls back to the browser's own (uncapped) estimate.
@@ -672,8 +719,18 @@ export default function GroupCall() {
         // browser/OS combination, and a mono 48kHz capture is what Opus
         // (the codec WebRTC uses) actually encodes at, so asking for it
         // directly avoids an extra unnecessary resample.
+        //
+        // Video: 1080p/30fps as the *ideal* capture target. The browser
+        // always falls back gracefully to whatever the camera actually
+        // supports (most laptop webcams and older phones top out at
+        // 720p), so this is safe to ask for even on weaker hardware.
+        // Capture resolution and the per-connection bitrate cap above are
+        // handled separately on purpose: capturing at up to 1080p once
+        // and then letting each peer connection's encoder scale down
+        // (via scaleResolutionDownBy) for larger rooms is cheaper than
+        // re-calling getUserMedia at different resolutions per room size.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -1011,6 +1068,10 @@ export default function GroupCall() {
     if (!localStream) return;
     const newFacingMode = facingMode === "user" ? "environment" : "user";
     const oldVideoTrack = localStream.getVideoTracks()[0];
+    // Capture this before stopping the old track — it's the ground truth
+    // for "did we actually get a different physical camera," independent
+    // of whatever facingMode label a new stream claims to have.
+    const previousDeviceId = oldVideoTrack?.getSettings().deviceId || currentVideoDeviceIdRef.current;
 
     try {
       // Stop the old camera track BEFORE requesting a new one — many
@@ -1025,32 +1086,71 @@ export default function GroupCall() {
       // the driver hasn't let go yet.
       await new Promise((resolve) => setTimeout(resolve, 250));
 
+      // The real bug this fixes: `facingMode: { ideal: ... }` is a soft
+      // hint, not a requirement — it NEVER rejects. On a chunk of Android
+      // devices/browsers, `exact` throws OverconstrainedError (camera2 API
+      // quirks, PWA context, etc.), so the code fell through to `ideal`,
+      // which then quietly handed back the SAME physical camera with no
+      // error at all. The old code trusted that as success and flipped
+      // `facingMode` state anyway — which only flips the CSS mirror
+      // transform, not the actual camera. That's exactly the "switching
+      // just reflects/mirrors the image instead of actually switching"
+      // symptom: same camera, now unmirrored (or re-mirrored), so it
+      // *looked* like something happened but the camera never changed.
+      //
+      // Fix: after every attempt, verify the resulting track's deviceId
+      // actually differs from what we started with. If it doesn't, treat
+      // that attempt as a failure and escalate to the next tier instead
+      // of accepting it.
+      const acquire = async (constraints) => {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { ...constraints, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        const track = stream.getVideoTracks()[0];
+        const gotDeviceId = track.getSettings().deviceId || null;
+        if (previousDeviceId && gotDeviceId && gotDeviceId === previousDeviceId) {
+          // Same physical camera came back — not a real switch.
+          stream.getTracks().forEach((t) => t.stop());
+          throw new Error("Got the same camera back");
+        }
+        return stream;
+      };
+
       let newVideoStream;
       try {
-        // Ask for a specific, different device rather than just hinting
-        // with facingMode — this is what actually makes the switch
-        // reliable across phones with two+ rear cameras or with flaky
-        // facingMode support, where "ideal" alone often just returns
-        // whatever camera was already active.
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((d) => d.kind === "videoinput");
-        const nextDevice = videoInputs.find((d) => d.deviceId !== currentVideoDeviceIdRef.current);
-
-        if (!nextDevice) {
-          throw new Error("Only one camera available");
-        }
-
-        newVideoStream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: nextDevice.deviceId } },
-          audio: false,
-        });
+        // Tier 1: exact facingMode — reliable on most phones with exactly
+        // one front + one back camera.
+        newVideoStream = await acquire({ facingMode: { exact: newFacingMode } });
       } catch {
-        // Fall back to the softer facingMode hint — covers browsers that
-        // don't expose device labels/ids reliably.
-        newVideoStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: newFacingMode } },
-          audio: false,
-        });
+        try {
+          // Tier 2: soft facingMode hint, but verified via the deviceId
+          // check above rather than trusted blindly.
+          newVideoStream = await acquire({ facingMode: { ideal: newFacingMode } });
+        } catch {
+          // Tier 3: explicit device enumeration, preferring a device whose
+          // label hints at the facing we want, otherwise just excluding
+          // the current deviceId outright. This tier is guaranteed to
+          // produce a different camera (or fail loudly) since it never
+          // relies on the browser honoring a facingMode hint at all.
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter((d) => d.kind === "videoinput");
+          const wantsBack = newFacingMode === "environment";
+          const labelMatch = videoInputs.find((d) => {
+            const label = d.label.toLowerCase();
+            return wantsBack ? label.includes("back") || label.includes("rear") : label.includes("front");
+          });
+          const nextDevice = labelMatch || videoInputs.find((d) => d.deviceId !== previousDeviceId);
+
+          if (!nextDevice) {
+            throw new Error("Only one camera available");
+          }
+
+          newVideoStream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: nextDevice.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          });
+        }
       }
       const newVideoTrack = newVideoStream.getVideoTracks()[0];
       currentVideoDeviceIdRef.current = newVideoTrack.getSettings().deviceId || null;
@@ -1069,7 +1169,28 @@ export default function GroupCall() {
       setFacingMode(newFacingMode);
     } catch (err) {
       console.error("Could not switch camera:", err);
-      alert("Couldn't switch camera — this device may only have one camera available.");
+      // The old track was already stopped above, so on total failure the
+      // user is left with no outgoing video at all unless we try to
+      // reacquire the camera we started from — leaving them silently
+      // camera-less until they leave and rejoin was the old behavior.
+      try {
+        const restoredStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        const restoredTrack = restoredStream.getVideoTracks()[0];
+        currentVideoDeviceIdRef.current = restoredTrack.getSettings().deviceId || null;
+        peerConnections.current.forEach((pc) => {
+          const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+          sender?.replaceTrack(restoredTrack);
+        });
+        localStreamRef.current = new MediaStream([restoredTrack, ...localStream.getAudioTracks()]);
+        setLocalStream(localStreamRef.current);
+        alert("Couldn't switch camera — this device may only have one camera available.");
+      } catch (restoreErr) {
+        console.error("Could not restore camera after failed switch:", restoreErr);
+        alert("Camera switch failed and the camera couldn't be recovered — try toggling your camera off and back on.");
+      }
     }
   };
 
