@@ -259,7 +259,11 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portra
         fullSize
           ? "relative w-full h-full bg-black overflow-hidden flex items-center justify-center"
           : `relative bg-black rounded-xl overflow-hidden ${
-              portrait ? "aspect-[3/4]" : "aspect-video"
+              // Taller than a standard 3:4 photo crop — closer to what
+              // WhatsApp's own draggable self-view PiP looks like, and
+              // gives noticeably more headroom/vertical framing than the
+              // old 3:4 crop did.
+              portrait ? "aspect-[3/5]" : "aspect-video"
             } flex items-center justify-center ring-1 ring-white/10`
       }
     >
@@ -1549,7 +1553,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
               onRetry={() => manualRetry(otherParticipants[0][0])}
               fullSize
             />
-            <DraggableSelfView widthClass={isDirectCall ? "w-20 md:w-28" : "w-28 md:w-40"}>
+            <DraggableSelfView widthClass={isDirectCall ? "w-24 md:w-32" : "w-28 md:w-40"}>
               <VideoTile
                 stream={localStream}
                 label={isDirectCall ? null : `${user.username} (You)`}

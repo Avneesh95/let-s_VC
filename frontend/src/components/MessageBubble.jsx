@@ -141,7 +141,16 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
               />
             </button>
           ) : (
-            <p className="text-sm break-words text-ink">{message.text}</p>
+            // whitespace-pre-wrap does two things at once: it makes a
+            // real line break (Shift+Enter in the compose box — see
+            // MessageInput.jsx) actually render as one, instead of the
+            // browser's default `white-space: normal` silently collapsing
+            // every newline into a single space so a multi-line message
+            // came out squashed onto one line. break-words then covers the
+            // other direction — one long unbroken token (a URL, "aaaaaa…")
+            // wraps inside the bubble instead of overflowing it. Same pair
+            // WhatsApp Web itself uses for message text.
+            <p className="text-sm whitespace-pre-wrap break-words text-ink">{message.text}</p>
           )}
           <span className={`block text-[10px] text-ink/45 text-right mt-0.5 ${message.type === "image" ? "px-1.5 pb-0.5" : ""}`}>
             {time}
