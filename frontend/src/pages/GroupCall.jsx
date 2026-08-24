@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useMatch, useNavigate } from "react-router-dom";
+import { useCallInvite } from "../context/CallInviteContext";
 import {
   Mic,
   MicOff,
@@ -18,8 +19,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
-import { startRingback, stopRingtone } from "../utils/ringtone";
-import Logo from "../components/Logo";
+import { startRingback, stopRingtone, playMessageTone } from "../utils/ringtone";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
@@ -99,7 +99,7 @@ function DraggableSelfView({ children, widthClass }) {
 // since it needs to float above the whole page. Tapping it restores the
 // full call screen; a small hang-up button lets you end the call directly
 // from the bubble without expanding first.
-function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onHangUp }) {
+function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onHangUp, name, avatarUrl }) {
   const videoRef = useRef(null);
   const elRef = useRef(null);
   const [pos, setPos] = useState(null);
@@ -185,11 +185,12 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
       />}
       {(!stream || cameraOff) && (
         // Shows whenever there's genuinely no video to display yet (no
-        // one else has joined, or both cameras are off) — a branded
-        // fallback instead of a bare black box.
-        <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-2 px-2">
-          <Logo size="sm" onDark className="scale-90" />
-          <span className="text-white/35 text-[9px] leading-none tracking-wide">by Avneesh</span>
+        // one else has joined, or both cameras are off) — the same
+        // recognizable colored-initial avatar as the full call screen,
+        // not a generic app logo, so it still reads as "this is a call
+        // with so-and-so" even minimized down to a small bubble.
+        <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-1 px-2">
+          <ParticipantAvatar name={name} avatarUrl={avatarUrl} size="w-10 h-10" textSize="text-base" />
         </div>
       )}
       <button
@@ -210,7 +211,37 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
   );
 }
 
-function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portrait, connState, onRetry }) {
+// A stable, consistent color per name (same idea as Avatar.jsx's
+// avatarColor, but for call participants — we only have their username
+// here, not their real avatarColor from the DB) so the same person always
+// gets the same colored circle rather than a random one each render.
+const AVATAR_PALETTE = ["#F4600F", "#7C5CFC", "#0EA5A4", "#DB2777", "#2563EB", "#B45309", "#059669", "#9333EA"];
+function colorForName(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+}
+
+// WhatsApp/FaceTime-style "camera is off" state: the person's own picture
+// (or a colored initial when there isn't one) filling the tile, not a
+// generic muted-camera icon — recognizably *them*, not just "no video".
+function ParticipantAvatar({ name, avatarUrl, size = "w-20 h-20", textSize = "text-3xl" }) {
+  if (avatarUrl) {
+    return <img src={avatarUrl} alt={name} className={`${size} rounded-full object-cover ring-2 ring-white/10`} />;
+  }
+  const color = colorForName(name || "?");
+  return (
+    <span
+      className={`${size} rounded-full text-white font-display font-semibold flex items-center justify-center ring-2 ring-white/10 relative overflow-hidden shrink-0`}
+      style={{ background: `linear-gradient(150deg, ${color} 0%, rgba(0,0,0,0.35) 140%)` }}
+    >
+      <span className="absolute inset-0 bg-gradient-to-tr from-white/10 via-transparent to-transparent" />
+      <span className={`relative ${textSize}`}>{(name || "?")[0].toUpperCase()}</span>
+    </span>
+  );
+}
+
+function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portrait, connState, onRetry, avatarUrl, avatarName }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -269,7 +300,7 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portra
       )}
       {cameraOff && (
         <div className="absolute inset-0 bg-callbg flex items-center justify-center">
-          <VideoOff className="w-7 h-7 text-white/45" strokeWidth={1.5} />
+          <ParticipantAvatar name={avatarName || label} avatarUrl={avatarUrl} />
         </div>
       )}
       {label && (
@@ -281,14 +312,28 @@ function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portra
   );
 }
 
-export default function GroupCall() {
-  const { roomCode: rawRoomCode } = useParams();
+export default function GroupCall({ roomCode: rawRoomCode }) {
   // Normalize casing here too — the join/create forms already uppercase
   // the code, but someone pasting or typing the URL directly (bypassing
   // those forms) could land here with different casing, which would
   // silently put them in a *different* room than intended.
-  const roomCode = rawRoomCode.toUpperCase();
+  const roomCode = String(rawRoomCode || "").toUpperCase();
   const navigate = useNavigate();
+  const { endCall } = useCallInvite();
+  // This component is now mounted for as long as the call is active,
+  // independent of the route (see ActiveCallOverlay in App.jsx) — so
+  // "minimized" is just "the URL isn't /room/:roomCode anymore", not its
+  // own piece of state. That single change is what fixes minimizing
+  // showing a blank screen: instead of this being the only thing on the
+  // page, the app underneath (whatever route the person navigated to) is
+  // free to render normally, with only the small bubble floating on top
+  // of it — the same way WhatsApp's call bubble floats over your chat
+  // list. It also means the phone's back button "just works" for
+  // minimizing: going back to the previous page is a real navigation, so
+  // this stops matching /room/:roomCode and shrinks to the bubble on its
+  // own, with no manual history-hacking needed.
+  const matchesCallRoute = useMatch("/room/:roomCode");
+  const isMinimized = !matchesCallRoute;
   // Set when this room was entered via a friend's call invite rather than
   // a shared public link — in that case we hide the room code/participant
   // count (nothing to share) and show who you're calling instead, matching
@@ -357,10 +402,16 @@ export default function GroupCall() {
   useEffect(() => {
     if (!callEnded) return;
     stopRingtone();
-    setIsMinimized(false); // surface the "Call ended" message even if it ended while minimized
-    const t = setTimeout(() => navigate("/"), 1600);
+    // Surface the "Call ended" message even if it ended while minimized —
+    // jump back to the call screen briefly before actually leaving.
+    if (!matchesCallRoute) navigate(`/room/${roomCode}`, { replace: true });
+    const t = setTimeout(() => {
+      endCall();
+      navigate(user ? "/chat" : "/", { replace: true });
+    }, 1600);
     return () => clearTimeout(t);
-  }, [callEnded, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callEnded]);
 
   // Ringback tone (the caller's-side "brrring... brrring" while waiting)
   // — only for direct 1-1 calls, only while genuinely alone waiting, and
@@ -390,13 +441,21 @@ export default function GroupCall() {
   // Remembers the camera video track while screen sharing is active, so
   // stopping the share can restore the camera feed exactly as it was.
   const cameraTrackRef = useRef(null);
-  // Whether the call is shrunk to a small floating bubble. Distinct from
-  // actually leaving: the WebRTC connections, socket room membership, and
-  // local media tracks all stay exactly as they are — only the UI changes.
-  const [isMinimized, setIsMinimized] = useState(false);
+  // isMinimized itself is derived above from the current route, not local
+  // state — see the comment by matchesCallRoute.
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]); // { senderId, username, text, timestamp }
   const [chatInput, setChatInput] = useState("");
+  // Unread in-call chat messages — the chat panel is an overlay the person
+  // has to deliberately open, so a message sent while it's closed (very
+  // common: it's closed by default) previously vanished into it with
+  // nothing on the toggle button to say it arrived.
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const chatOpenRef = useRef(chatOpen);
+  useEffect(() => {
+    chatOpenRef.current = chatOpen;
+    if (chatOpen) setUnreadChatCount(0);
+  }, [chatOpen]);
 
   // WhatsApp/FaceTime-style call screen: video fills the entire viewport
   // and the header/controls float over it as translucent overlays instead
@@ -947,6 +1006,14 @@ export default function GroupCall() {
 
     const handleChatMessage = (msg) => {
       setChatMessages((prev) => [...prev, msg]);
+      // The server echoes the sender's own message back too (so everyone's
+      // list stays a single source of truth) — don't count or chime for
+      // our own messages, and don't bump the badge while the panel the
+      // person is already looking at is open.
+      if (msg.senderId !== user?.id && !chatOpenRef.current) {
+        setUnreadChatCount((c) => c + 1);
+        playMessageTone();
+      }
     };
 
     socket.on("existing-participants", handleExistingParticipants);
@@ -1046,31 +1113,14 @@ export default function GroupCall() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The back button (or a phone's back gesture) used to unmount this page
-  // like any other navigation, which tore down the call — see the cleanup
-  // effect above. That's surprising: everywhere else in the app, back
-  // button behavior matches real apps, where leaving a call is a
-  // deliberate action, not an accidental swipe. So instead we seed one
-  // extra, invisible history entry the moment the call screen opens; the
-  // first "back" only pops that spare entry (the URL never actually
-  // changes), and we treat it as a request to minimize rather than a
-  // request to leave. Actually leaving still works fine — the Leave/hang
-  // up buttons navigate programmatically, which doesn't fire `popstate`
-  // at all, so this trap never interferes with them.
-  useEffect(() => {
-    window.history.pushState({ callGuard: true }, "", window.location.href);
-
-    const onPopState = () => {
-      // Re-seed immediately so every subsequent back press is caught the
-      // same way, not just the first — otherwise the second press would
-      // fall through and actually leave.
-      window.history.pushState({ callGuard: true }, "", window.location.href);
-      setIsMinimized(true);
-    };
-
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  // The back button (or a phone's back gesture) no longer needs any
+  // special handling here: since this component now stays mounted by
+  // ActiveCallOverlay regardless of route (see App.jsx), a real "back"
+  // navigation away from /room/:roomCode just changes the URL — it
+  // doesn't unmount this component or tear down the call — and
+  // matchesCallRoute above picks that up on its own, shrinking straight
+  // to the minimized bubble. Actually leaving the call is still a
+  // deliberate action via the Leave/hang-up buttons, which call endCall().
 
   // Closing the tab, refreshing, or navigating away by URL doesn't run our
   // React cleanup in time to tell the other side — they were left waiting
@@ -1103,7 +1153,8 @@ export default function GroupCall() {
 
   const leaveRoom = () => {
     sessionStorage.removeItem(`directCall:${roomCode}`);
-    navigate("/");
+    endCall(); // clears the active-call context, which unmounts this component and runs its cleanup
+    navigate(user ? "/chat" : "/");
   };
 
   const toggleCamera = () => {
@@ -1416,7 +1467,9 @@ export default function GroupCall() {
         muted={!other}
         cameraOff={other ? !!other.remoteCameraOff : !isCameraOn}
         mirrored={!other && facingMode === "user" && !isScreenSharing}
-        onExpand={() => setIsMinimized(false)}
+        name={other?.username || user.username}
+        avatarUrl={other ? undefined : user.avatarUrl}
+        onExpand={() => navigate(`/room/${roomCode}`)}
         onHangUp={leaveRoom}
       />
     );
@@ -1429,6 +1482,7 @@ export default function GroupCall() {
       label={`${user.username} (You)`}
       muted
       cameraOff={!isCameraOn}
+      avatarUrl={user.avatarUrl}
       mirrored={facingMode === "user" && !isScreenSharing}
     />
   );
@@ -1453,6 +1507,8 @@ export default function GroupCall() {
               muted
               fullSize
               cameraOff={!isCameraOn}
+              avatarUrl={user.avatarUrl}
+              avatarName={user.username}
               mirrored={facingMode === "user" && !isScreenSharing}
             />
             <div className="absolute inset-x-0 top-20 md:top-24 flex justify-center px-4">
@@ -1499,6 +1555,8 @@ export default function GroupCall() {
                 label={isDirectCall ? null : `${user.username} (You)`}
                 muted
                 cameraOff={!isCameraOn}
+                avatarUrl={user.avatarUrl}
+                avatarName={user.username}
                 mirrored={facingMode === "user" && !isScreenSharing}
                 portrait={isDirectCall}
               />
@@ -1611,7 +1669,7 @@ export default function GroupCall() {
             </button>
           )}
           <button
-            onClick={() => setIsMinimized(true)}
+            onClick={() => navigate(user ? "/chat" : "/")}
             title="Minimize"
             className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg p-1.5 md:px-2.5 md:py-1.5 flex items-center gap-1.5"
           >
@@ -1714,11 +1772,16 @@ export default function GroupCall() {
         <button
           onClick={() => setChatOpen((v) => !v)}
           title="Toggle chat"
-          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
+          className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
             chatOpen ? "bg-brand" : "bg-white/10 hover:bg-white/20"
           }`}
         >
           <MessageCircle className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
+          {unreadChatCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 bg-danger text-white text-[10px] font-semibold min-w-[1.125rem] h-4.5 px-1 rounded-full flex items-center justify-center ring-2 ring-callbg">
+              {unreadChatCount > 9 ? "9+" : unreadChatCount}
+            </span>
+          )}
         </button>
         <button
           onClick={leaveRoom}

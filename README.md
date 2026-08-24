@@ -13,6 +13,9 @@ decision (and why) is the most interesting thing to talk about in this project.
   reject actions) — see Architecture for why
 - 1-on-1 real-time messaging via Socket.IO, with image sharing, message reactions
   (one per person per message, toggle to remove), typing indicators, online presence
+  shown both in an open conversation and as a dot on each contact in the chat list
+- Minimizable video calls — shrink to a floating bubble and keep browsing the rest of the
+  app underneath (chats, contacts) while the call keeps running, the way WhatsApp does it
 - Light/dark mode, persisted and defaulting to system preference
 - Profile settings: change username, change password, upload a profile picture
 - Ringtone on incoming calls (and a softer ringback for the caller while waiting) —
@@ -28,8 +31,9 @@ decision (and why) is the most interesting thing to talk about in this project.
 - Installable as a PWA (Add to Home Screen / desktop install), with an offline-resilient
   app shell via a service worker
 - Browser notifications for incoming calls when the tab isn't focused, plus Web Push
-  notifications that can reach the callee even when the app is fully closed (see
-  Architecture — this is a real trade-off, not a full replacement for the in-tab ringtone)
+  notifications for both incoming calls and new messages that can reach the recipient even
+  when the app is fully closed (see Architecture — this is a real trade-off, not a full
+  replacement for the in-tab ringtone)
 - Rate limiting on auth endpoints, server-side email/password validation, and a shared
   `asyncHandler` wrapper so an async route error returns a clean response instead of
   hanging the request (a real bug this project used to have — see Architecture)
@@ -113,15 +117,48 @@ a senior-level instinct, not just a debugging story.
   only verifies the JWT signature, and the room-joining code path never touches the `User`
   model — video rooms don't need identity, so guests don't need an account.
 
-### Background call notifications — and their real limitation
+### Minimizing a call without losing it
+`GroupCall` used to be mounted directly by the `/room/:roomCode` route, which meant
+"minimize" could only shrink the video UI to a small bubble on that same page — navigating
+anywhere else in the app would unmount the component and hang up the call, so there was
+nothing to actually show behind the bubble. It's now mounted once, at the `App.jsx` level,
+independent of whatever route is currently showing; `/room/:roomCode` becomes just the
+"is the call screen expanded or minimized" signal, read via `useMatch`, rather than the
+thing that mounts or unmounts the call. Minimizing is just navigating elsewhere — the call's
+WebRTC connections, camera, and mic are untouched, and the bubble floats above whatever page
+you're now on, the same way WhatsApp's call bubble sits over your chat list.
+
+
+Two different paths end a call, and they run at very different speeds:
+- **Leaving on purpose** (hang-up button, closing the tab, navigating away) fires an explicit
+  `leave-room` event immediately via a `pagehide` handler — the other side sees "call ended"
+  in well under a second, no matter what.
+- **An abrupt drop** (signal lost, phone dies, app force-killed) has no chance to send that
+  event — the server only finds out once Socket.IO's own heartbeat notices the connection is
+  gone (`pingInterval`/`pingTimeout` in `server.js`), and only *then* does the short grace
+  window in `socket.js` (1.5s for a 1-1 room, 8s for a group room) start. The heartbeat check
+  itself is the larger piece of that total, and it's deliberately not set to the bare minimum:
+  a phone screen locking or a few seconds of dead WiFi can silently pause a tab's JS timers,
+  and a too-aggressive heartbeat reads that as a dropped call and falsely ends it. On a
+  free-tier host in particular (Render's free tier sleeps and can take 30-50s to wake), too
+  tight a heartbeat causes exactly the false-disconnect flicker this was tuned to avoid.
+  What's actually true: a *voluntary* leave is instant; a *silent* drop is fast, but bounded by
+  how patient the heartbeat needs to be to stay reliable on real, imperfect networks — there's
+  no setting that makes both simultaneously perfect.
+
+### Background notifications — calls, messages, and their real limitation
 When you call a friend, the server first tries their live Socket.IO connection (covers both
 the foreground tab and a backgrounded-but-still-open tab — the client's own Notification API
 call handles surfacing that case). If there's no live socket at all — the app is fully
 closed, not just backgrounded — that used to just fail with "user is offline" and the callee
 never found out. Now the server falls back to **Web Push**: each device that's opted in
-(Settings → "Ring when app is closed") has a subscription stored on the `User` document, and
-the service worker (`public/sw.js`) handles the `push` event with a persistent, high-priority
-OS notification carrying Answer/Decline actions that deep-link straight into the room.
+(Settings → "Notify me when app is closed") has a subscription stored on the `User` document,
+and the service worker (`public/sw.js`) handles the `push` event with a persistent,
+high-priority OS notification carrying Answer/Decline actions that deep-link straight into
+the room. A new message from someone with no live socket gets the same treatment — a normal
+notification with a sender + preview that deep-links into that conversation
+(`/chat?with=<id>`) — both share one subscription and one `sendWebPush` helper server-side,
+just different payloads.
 
 The honest limitation, worth stating up front in an interview rather than glossing over: **a
 closed app can't loop a continuous ringtone** — there's no page for a service worker to play
@@ -145,16 +182,16 @@ backend/
   models/       User (now also stores Web Push subscriptions), Message, FriendRequest
   routes/       REST endpoints (auth, users, messages, friends, upload, push)
   middleware/   JWT verification for protected routes, asyncHandler for clean async errors
-  socket/       Socket.IO handlers — messaging, friend-gated call invites (with a Web
-                Push fallback when the callee has no live socket), and the unified
-                room-joining/signaling flow that serves both call types
+  socket/       Socket.IO handlers — messaging (with a Web Push fallback when the recipient
+                has no live socket), friend-gated call invites (same Web Push fallback), and
+                the unified room-joining/signaling flow that serves both call types
   config/       MongoDB connection, Cloudinary, Web Push/VAPID setup
   server.js     Express + HTTP server + Socket.IO bootstrap, env var validation,
                 security headers, centralized error handler
 frontend/
   src/context/  AuthContext (login state), SocketContext (shared connection),
-                CallInviteContext (the friend-invite handshake — no WebRTC code here
-                at all, just notify/accept/decline, then hands off to the room page)
+                CallInviteContext (the friend-invite handshake plus the active-call state
+                that keeps a call alive across navigation — see minimizing below)
   src/pages/    Home (public landing + guest room join), Login, Register, Chat,
                 GroupCall (the one video-calling implementation, used for both call
                 types), NotFound
@@ -193,10 +230,11 @@ npm run dev
    CORS since browsers never send one in the `Origin` header), the `CLOUDINARY_*` vars, and
    optionally `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT_EMAIL` for background
    call notifications
-4. **Frontend**: Vercel or Netlify — set `VITE_API_URL` to your backend URL. If deploying
-   to Netlify, make sure `frontend/public/_redirects` (containing `/* /index.html 200`)
-   is present — without it, direct links to any route other than `/` 404, since Netlify
-   doesn't know client-side routes exist unless told to fall through to `index.html`
+4. **Frontend**: Vercel or Netlify — set `VITE_API_URL` to your backend URL. Both need a
+   rewrite so direct links to a client-side route (e.g. `/room/ABCD`, or `/chat?with=<id>`
+   from a tapped notification) don't 404 — Netlify picks up `frontend/public/_redirects`
+   (`/* /index.html 200`) automatically, Vercel picks up `frontend/vercel.json` automatically.
+   Both are already in this repo.
 5. Video calls need HTTPS in production (`getUserMedia` requires a secure context) — Render
    and Vercel/Netlify both provide this by default
 

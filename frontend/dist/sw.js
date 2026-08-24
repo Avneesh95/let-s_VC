@@ -68,15 +68,17 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// --- Background call notifications ---
+// --- Background notifications (calls + messages) ---
 // This fires even when the app is fully closed (that's the whole point —
-// a foreground/backgrounded-but-open tab already rings via the in-page
-// ringtone in utils/ringtone.js and doesn't need this). One real
-// limitation worth being upfront about: a service worker has no page to
-// play looping audio through, so this can't reproduce a continuous phone
-// ringtone. What it CAN do — and does — is a persistent, high-priority OS
-// notification (system sound + vibration + stays on screen until acted on)
-// with Answer/Decline actions that jump straight into the call.
+// a foreground/backgrounded-but-open tab already gets these live over the
+// socket/in-page and doesn't need this). One real limitation worth being
+// upfront about for calls: a service worker has no page to play looping
+// audio through, so this can't reproduce a continuous phone ringtone. What
+// it CAN do — and does — is a persistent, high-priority OS notification
+// (system sound + vibration + stays on screen until acted on) with
+// Answer/Decline actions that jump straight into the call. Messages are
+// simpler: just a normal notification that opens straight into that
+// conversation on tap.
 self.addEventListener("push", (event) => {
   if (!event.data) return;
 
@@ -86,30 +88,65 @@ self.addEventListener("push", (event) => {
   } catch {
     return;
   }
-  if (payload.type !== "incoming-call") return;
 
-  const { roomCode, callerName, callerAvatarUrl, declineToken } = payload;
+  if (payload.type === "incoming-call") {
+    const { roomCode, callerName, callerAvatarUrl, declineToken } = payload;
+    event.waitUntil(
+      self.registration.showNotification(`${callerName || "Someone"} is calling…`, {
+        body: "Tap Answer to join",
+        tag: `call-${roomCode}`, // replaces any previous notification for the same call
+        icon: callerAvatarUrl || "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        vibrate: [300, 150, 300, 150, 300],
+        requireInteraction: true, // stays up until the person acts, doesn't auto-dismiss
+        data: { type: "incoming-call", roomCode, callerName, declineToken },
+        actions: [
+          { action: "answer", title: "Answer" },
+          { action: "decline", title: "Decline" },
+        ],
+      })
+    );
+    return;
+  }
 
-  event.waitUntil(
-    self.registration.showNotification(`${callerName || "Someone"} is calling…`, {
-      body: "Tap Answer to join",
-      tag: `call-${roomCode}`, // replaces any previous notification for the same call
-      icon: callerAvatarUrl || "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      vibrate: [300, 150, 300, 150, 300],
-      requireInteraction: true, // stays up until the person acts, doesn't auto-dismiss
-      data: { roomCode, callerName, declineToken },
-      actions: [
-        { action: "answer", title: "Answer" },
-        { action: "decline", title: "Decline" },
-      ],
-    })
-  );
+  if (payload.type === "new-message") {
+    const { senderId, senderName, senderAvatarUrl, preview } = payload;
+    event.waitUntil(
+      self.registration.showNotification(senderName || "New message", {
+        body: preview || "Sent you a message",
+        // Replaces any earlier not-yet-seen notification from the same
+        // sender instead of stacking a separate one per message — matches
+        // how the in-app unread badge already collapses to one count.
+        tag: `message-${senderId}`,
+        icon: senderAvatarUrl || "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        vibrate: [150],
+        data: { type: "new-message", senderId },
+      })
+    );
+  }
 });
 
 self.addEventListener("notificationclick", (event) => {
-  const { roomCode, declineToken } = event.notification.data || {};
+  const data = event.notification.data || {};
   event.notification.close();
+
+  if (data.type === "new-message") {
+    const targetUrl = `/chat?with=${data.senderId}`;
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        const existing = clients.find((c) => new URL(c.url).origin === self.location.origin);
+        if (existing) {
+          existing.navigate(targetUrl);
+          return existing.focus();
+        }
+        return self.clients.openWindow(targetUrl);
+      })
+    );
+    return;
+  }
+
+  const { roomCode, declineToken } = data;
 
   if (event.action === "decline") {
     // Best-effort: let the caller's screen know right away instead of

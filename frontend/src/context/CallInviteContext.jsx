@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 import generateRoomCode from "../utils/generateRoomCode";
 import { requestNotificationPermission, showNotification } from "../utils/notifications";
 import { startRingtone, stopRingtone } from "../utils/ringtone";
-import { enableCallPush, getExistingPushSubscription, isPushSupported, isPushConfiguredOnServer } from "../utils/push";
+import { enablePush, getExistingPushSubscription, isPushSupported, isPushConfiguredOnServer } from "../utils/push";
 
 const CallInviteContext = createContext(null);
 
@@ -19,6 +19,18 @@ export function CallInviteProvider({ children }) {
   const navigate = useNavigate();
 
   const [incomingInvite, setIncomingInvite] = useState(null); // { from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }
+
+  // The room code of whichever call is currently "alive" — meaning its
+  // WebRTC connections, socket room membership, and camera/mic tracks all
+  // still exist — regardless of which page is actually on screen right
+  // now. This is what lets a call survive being minimized: App.jsx keeps
+  // <GroupCall> mounted for as long as this is set, entirely independent
+  // of the current route, instead of the call being torn down the instant
+  // the URL changes away from /room/:roomCode. Only endCall() (an actual
+  // hang-up) clears it — navigating elsewhere while minimized must not.
+  const [activeRoomCode, setActiveRoomCode] = useState(null);
+  const startCall = (roomCode) => setActiveRoomCode(String(roomCode).toUpperCase());
+  const endCall = () => setActiveRoomCode(null);
   const activeNotification = useRef(null);
   // Auto-clears a stuck ring if we never hear back at all (missed/dropped
   // socket event) — belt-and-suspenders alongside the server's explicit
@@ -45,7 +57,7 @@ export function CallInviteProvider({ children }) {
       requestNotificationPermission().then((permission) => {
         if (permission !== "granted") return;
         getExistingPushSubscription().then((existing) => {
-          if (!existing) enableCallPush().catch(() => {}); // silent — Settings surfaces real errors
+          if (!existing) enablePush().catch(() => {}); // silent — Settings surfaces real errors
         });
       });
     });
@@ -167,7 +179,9 @@ export function CallInviteProvider({ children }) {
   };
 
   return (
-    <CallInviteContext.Provider value={{ incomingInvite, callFriend, acceptInvite, declineInvite }}>
+    <CallInviteContext.Provider
+      value={{ incomingInvite, callFriend, acceptInvite, declineInvite, activeRoomCode, startCall, endCall }}
+    >
       {children}
     </CallInviteContext.Provider>
   );

@@ -58,7 +58,7 @@ function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectReques
 }
 
 // A chat row — a friend you can click straight into a conversation with.
-function ChatRow({ u, isActive, onSelect, unreadCount }) {
+function ChatRow({ u, isActive, isOnline, onSelect, unreadCount }) {
   return (
     <li
       onClick={() => onSelect(u)}
@@ -66,7 +66,12 @@ function ChatRow({ u, isActive, onSelect, unreadCount }) {
         isActive ? "bg-brand/10 dark:bg-brand/15" : "hover:bg-ink/[0.035]"
       }`}
     >
-      <Avatar user={u} />
+      <span className="relative shrink-0">
+        <Avatar user={u} />
+        {isOnline && (
+          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-neon shadow-neon ring-2 ring-surface" />
+        )}
+      </span>
       <span className="flex flex-col min-w-0 flex-1">
         <span className={`truncate text-[0.925rem] ${unreadCount ? "font-semibold text-ink" : "font-medium text-ink"}`}>
           {u.username}
@@ -84,7 +89,7 @@ function ChatRow({ u, isActive, onSelect, unreadCount }) {
 // A person card in "Find People" — everyone, not just friends, since this
 // is the discovery view. Clicking a card that's already a friend opens
 // their chat; clicking anyone else is just the add/accept/reject actions.
-function PersonCard({ u, onOpenChat, onAddFriend, onAcceptRequest, onRejectRequest }) {
+function PersonCard({ u, isOnline, onOpenChat, onAddFriend, onAcceptRequest, onRejectRequest }) {
   const clickable = u.friendStatus === "friends";
   return (
     <div
@@ -93,7 +98,12 @@ function PersonCard({ u, onOpenChat, onAddFriend, onAcceptRequest, onRejectReque
         clickable ? "cursor-pointer hover:border-brand/40 hover:shadow-premium" : ""
       } transition-all`}
     >
-      <Avatar user={u} size="w-11 h-11" />
+      <span className="relative shrink-0">
+        <Avatar user={u} size="w-11 h-11" />
+        {isOnline && (
+          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-neon shadow-neon ring-2 ring-surface" />
+        )}
+      </span>
       <span className="flex-1 min-w-0">
         <span className="font-medium text-ink truncate block">{u.username}</span>
       </span>
@@ -246,6 +256,7 @@ export default function Sidebar({
                 key={u._id}
                 u={u}
                 isActive={activeUser?._id === u._id}
+                isOnline={onlineUsers.includes(u._id)}
                 onSelect={onSelect}
                 unreadCount={unreadCounts[u._id]}
               />
@@ -261,6 +272,7 @@ export default function Sidebar({
               <PersonCard
                 key={u._id}
                 u={u}
+                isOnline={onlineUsers.includes(u._id)}
                 onOpenChat={openChatFromCard}
                 onAddFriend={onAddFriend}
                 onAcceptRequest={onAcceptRequest}

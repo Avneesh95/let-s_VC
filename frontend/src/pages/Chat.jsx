@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
@@ -15,6 +16,7 @@ export default function Chat() {
 
   const [users, setUsers] = useState([]);
   const [activeUser, setActiveUser] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [messages, setMessages] = useState([]);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   // Per-sender unread counts, shown as a badge in the sidebar — the part
@@ -70,6 +72,23 @@ export default function Chat() {
   useEffect(() => {
     refreshUsers();
   }, [refreshUsers]);
+
+  // Tapping a "new message" push notification lands here as
+  // /chat?with=<userId> (see sw.js) — once the contact list is loaded,
+  // open that conversation and drop the query param so it doesn't linger
+  // in the URL or re-fire on a later re-render.
+  useEffect(() => {
+    const withId = searchParams.get("with");
+    if (!withId || users.length === 0) return;
+    const target = users.find((u) => u._id === withId && u.friendStatus === "friends");
+    if (target) setActiveUser(target);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("with");
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users]);
 
   // Keep the currently-open chat's friend status in sync after any
   // friend-list refresh (e.g. right after accepting their request)

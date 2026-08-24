@@ -54,9 +54,11 @@ export async function getExistingPushSubscription() {
 }
 
 // Subscribes this device to push and registers it with the backend.
+// Covers both background call ringing and message notifications — one
+// subscription, the backend decides what to send to it.
 // Throws on failure (permission denied, server has no VAPID key configured,
 // etc) — callers should catch and show a friendly message rather than fail silently.
-export async function enableCallPush() {
+export async function enablePush() {
   if (!isPushSupported()) {
     throw new Error("Push notifications aren't supported in this browser");
   }
@@ -96,7 +98,7 @@ export async function enableCallPush() {
   return subscription;
 }
 
-export async function disableCallPush() {
+export async function disablePush() {
   const subscription = await getExistingPushSubscription();
   if (!subscription) return;
 

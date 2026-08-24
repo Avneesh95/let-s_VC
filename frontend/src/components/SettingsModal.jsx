@@ -3,8 +3,8 @@ import { X, Camera, BellRing } from "lucide-react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import {
-  enableCallPush,
-  disableCallPush,
+  enablePush,
+  disablePush,
   getExistingPushSubscription,
   isPushSupported,
   isPushConfiguredOnServer,
@@ -59,10 +59,10 @@ export default function SettingsModal({ onClose }) {
     setPushError("");
     try {
       if (pushState === "on") {
-        await disableCallPush();
+        await disablePush();
         setPushState("off");
       } else {
-        await enableCallPush();
+        await enablePush();
         setPushState("on");
       }
     } catch (err) {
@@ -225,7 +225,7 @@ export default function SettingsModal({ onClose }) {
             )}
           </form>
 
-          {/* Background call notifications */}
+          {/* Background call + message notifications */}
           {pushState !== "unsupported" && (
             <div className="flex flex-col gap-2 pt-1 border-t border-line/10">
               <div className="flex items-center justify-between pt-4">
@@ -234,9 +234,9 @@ export default function SettingsModal({ onClose }) {
                     <BellRing className="w-4 h-4" strokeWidth={1.75} />
                   </span>
                   <div>
-                    <p className="text-sm font-medium text-ink">Ring when app is closed</p>
+                    <p className="text-sm font-medium text-ink">Notify me when app is closed</p>
                     <p className="text-xs text-ink/60 mt-0.5">
-                      Get a call notification on this device even when the app isn't open.
+                      Get a call or message notification on this device even when the app isn't open.
                     </p>
                   </div>
                 </div>
@@ -262,14 +262,15 @@ export default function SettingsModal({ onClose }) {
                 <p className="text-xs text-ink/50 bg-ink/5 rounded-lg px-2.5 py-2 leading-relaxed">
                   Not available yet — this server hasn't been set up for push notifications
                   (missing VAPID keys). Everything else works normally; this only affects
-                  ringing while the app is fully closed.
+                  ringing and message alerts while the app is fully closed.
                 </p>
               ) : (
                 <>
                   {pushError && <p className="text-xs text-danger">{pushError}</p>}
                   <p className="text-[11px] text-ink/50 leading-relaxed">
                     Note: a fully closed app can't play a continuous ringtone — you'll get a
-                    system notification with Answer/Decline instead.
+                    system notification with Answer/Decline for calls, and a normal
+                    notification for messages.
                   </p>
                 </>
               )}

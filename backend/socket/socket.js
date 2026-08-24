@@ -40,45 +40,22 @@ async function areFriends(userId, otherUserId) {
   return !!me?.friends.some((id) => id.toString() === otherUserId);
 }
 
-// Sends a "you're being called" push notification to every device the
-// callee has enabled background call notifications on. Returns true if at
-// least one subscription got a notification, so the caller side can still
-// say "offline" when there's truly no way to reach them.
-async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }) {
+// Actually delivers a push payload to every device a user has subscribed
+// from, and prunes any subscription the push service reports as dead
+// (expired/revoked — a 404/410 response) so we stop wasting an attempt on
+// it every time. Shared by calls and messages — the only difference
+// between them is what goes in the payload.
+async function sendWebPush(userId, payloadObj) {
   if (!pushEnabled) return false;
 
   const user = await User.findById(userId).select("pushSubscriptions");
   if (!user?.pushSubscriptions?.length) return false;
 
-  // The service worker handling this notification has no live socket
-  // connection (the app is fully closed) and can't read the page's
-  // localStorage-stored JWT either — a service worker runs in a separate
-  // context with no access to it. So "Decline" can't authenticate the
-  // normal way. Instead, this one-purpose token is scoped to exactly this
-  // call (which room, which caller) and expires with the ring window —
-  // it can only ever be used to decline this specific call, nothing else.
-  const declineToken = jwt.sign(
-    { purpose: "call-decline", roomCode, from },
-    process.env.JWT_SECRET,
-    { expiresIn: "5m" }
-  );
-
-  const payload = JSON.stringify({
-    type: "incoming-call",
-    from,
-    roomCode,
-    callerName,
-    callerAvatarColor,
-    callerAvatarUrl,
-    declineToken,
-  });
-
+  const payload = JSON.stringify(payloadObj);
   const results = await Promise.allSettled(
     user.pushSubscriptions.map((sub) => webpush.sendNotification(sub, payload))
   );
 
-  // A subscription that's expired/revoked comes back as a 404/410 — prune
-  // it so we stop wasting a push attempt (and a log warning) on it every call.
   const deadEndpoints = [];
   results.forEach((result, i) => {
     if (result.status === "rejected" && [404, 410].includes(result.reason?.statusCode)) {
@@ -92,6 +69,50 @@ async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarCo
   }
 
   return results.some((r) => r.status === "fulfilled");
+}
+
+// Sends a "you're being called" push notification to every device the
+// callee has enabled background call notifications on. Returns true if at
+// least one subscription got a notification, so the caller side can still
+// say "offline" when there's truly no way to reach them.
+async function sendCallPush(userId, { from, roomCode, callerName, callerAvatarColor, callerAvatarUrl }) {
+  // The service worker handling this notification has no live socket
+  // connection (the app is fully closed) and can't read the page's
+  // localStorage-stored JWT either — a service worker runs in a separate
+  // context with no access to it. So "Decline" can't authenticate the
+  // normal way. Instead, this one-purpose token is scoped to exactly this
+  // call (which room, which caller) and expires with the ring window —
+  // it can only ever be used to decline this specific call, nothing else.
+  const declineToken = jwt.sign(
+    { purpose: "call-decline", roomCode, from },
+    process.env.JWT_SECRET,
+    { expiresIn: "5m" }
+  );
+
+  return sendWebPush(userId, {
+    type: "incoming-call",
+    from,
+    roomCode,
+    callerName,
+    callerAvatarColor,
+    callerAvatarUrl,
+    declineToken,
+  });
+}
+
+// Sends a "new message" push notification for a message that arrived while
+// the recipient had no live socket at all (app fully closed — a
+// backgrounded-but-open tab still has a socket and gets the message over
+// it immediately, no push needed). Same subscription list as calls: one
+// "notify me when the app is closed" toggle covers both.
+async function sendMessagePush(userId, { senderId, senderName, senderAvatarUrl, preview }) {
+  return sendWebPush(userId, {
+    type: "new-message",
+    senderId,
+    senderName,
+    senderAvatarUrl,
+    preview,
+  });
 }
 
 // Relays a decline back to the caller when it comes from a device that has
@@ -160,6 +181,45 @@ function getRoomParticipants(roomCode, excludeUserId) {
     .map(([userId, info]) => ({ userId, username: info.username }));
 }
 
+// Room membership grace period: how long we wait after a socket drops out
+// of a room before actually treating it as "they left" and telling the
+// other participants. A raw socket disconnect fires for lots of things
+// that aren't a real hang-up — a phone briefly losing signal in an
+// elevator, a laptop waking from sleep, the long-polling transport
+// churning through a normal reconnect cycle — and the client already
+// auto-reconnects and re-emits "join-room" within a couple seconds of any
+// of those (see the client's "connect" handler in GroupCall.jsx). Without
+// this grace window, every one of those blips looked identical to a real
+// hang-up: the other side's UI immediately showed "Call ended" and
+// (for a direct 1-1 call) got kicked back out of the call, even though
+// the dropped side reconnected a moment later — which is the "1-1 calls
+// show disconnect" bug. roomCode:userId -> setTimeout handle.
+const pendingRoomLeaves = new Map();
+const ROOM_LEAVE_GRACE_MS = 8000;
+// A 1-1 call only has two people in it — there's no "everyone else can see
+// I'm still around" context a group room has, so the one other person just
+// sits staring at a frozen video tile for however long the grace window
+// is. That's the "why didn't it just end" complaint for direct calls
+// specifically. Group rooms keep the full grace window (a group is more
+// tolerant of one person's momentary blip, and there's more value in not
+// falsely booting someone mid-reconnect); a room with only 2 people uses a
+// much shorter one instead, since a real hang-up here should feel instant
+// while still surviving a genuine one-or-two-second network hiccup.
+const DIRECT_CALL_LEAVE_GRACE_MS = 1500;
+
+function roomLeaveKey(roomCode, userId) {
+  return `${roomCode}:${userId}`;
+}
+
+function cancelPendingRoomLeave(roomCode, userId) {
+  const key = roomLeaveKey(roomCode, userId);
+  const timer = pendingRoomLeaves.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    pendingRoomLeaves.delete(key);
+  }
+}
+
 function initSocket(io) {
   ioInstance = io;
 
@@ -203,6 +263,18 @@ function initSocket(io) {
         const receiverSocketId = getSocketId(receiverId);
         if (receiverSocketId) {
           io.to(receiverSocketId).emit("receive-message", message);
+        } else {
+          // No live socket at all — the recipient's app is fully closed,
+          // not just backgrounded (same distinction as call-invite above).
+          // Fall back to web push so the message doesn't just silently
+          // wait for them to happen to open the app again.
+          const sender = await User.findById(socket.userId).select("username avatarUrl");
+          sendMessagePush(receiverId, {
+            senderId: socket.userId,
+            senderName: sender?.username || "Someone",
+            senderAvatarUrl: sender?.avatarUrl,
+            preview: type === "image" ? "📷 Photo" : message.text.slice(0, 120),
+          }).catch((err) => console.error("sendMessagePush failed:", err.message));
         }
 
         // Echo back to sender so their own UI updates (and confirms it saved)
@@ -325,6 +397,11 @@ function initSocket(io) {
         return;
       }
 
+      // If this same user was mid-grace-period from a just-dropped socket
+      // in this exact room, they're back — cancel the pending "they left"
+      // notice instead of letting it fire later on top of this fresh join.
+      cancelPendingRoomLeave(roomCode, socket.userId);
+
       socket.currentRoom = roomCode;
       const existingParticipants = getRoomParticipants(roomCode, socket.userId);
       joinRoom(roomCode, socket.userId, username, socket.id);
@@ -340,6 +417,7 @@ function initSocket(io) {
     socket.on("leave-room", () => {
       if (!socket.currentRoom) return;
       const roomCode = socket.currentRoom;
+      cancelPendingRoomLeave(roomCode, socket.userId);
       leaveRoom(roomCode, socket.userId);
       socket.to(roomCode).emit("user-left-room", { userId: socket.userId });
       socket.leave(roomCode);
@@ -399,8 +477,21 @@ function initSocket(io) {
       io.emit("online-users", Array.from(onlineUsers.keys()));
 
       if (socket.currentRoom) {
-        leaveRoom(socket.currentRoom, socket.userId);
-        socket.to(socket.currentRoom).emit("user-left-room", { userId: socket.userId });
+        // Don't declare them "left" the instant the socket drops — see the
+        // comment on ROOM_LEAVE_GRACE_MS above. If they (or a fresh tab)
+        // rejoin this room before the timer fires, join-room cancels it and
+        // nobody else ever finds out this blip happened.
+        const roomCode = socket.currentRoom;
+        const userId = socket.userId;
+        cancelPendingRoomLeave(roomCode, userId);
+        const room = rooms.get(roomCode);
+        const graceMs = room && room.size <= 2 ? DIRECT_CALL_LEAVE_GRACE_MS : ROOM_LEAVE_GRACE_MS;
+        const timer = setTimeout(() => {
+          pendingRoomLeaves.delete(roomLeaveKey(roomCode, userId));
+          leaveRoom(roomCode, userId);
+          io.to(roomCode).emit("user-left-room", { userId });
+        }, graceMs);
+        pendingRoomLeaves.set(roomLeaveKey(roomCode, userId), timer);
       }
 
       // Resolve any call invite still ringing that involved this user, so
