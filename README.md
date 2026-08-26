@@ -1,4 +1,4 @@
-# ChatApp — MERN + Socket.IO + WebRTC
+# Peerly — MERN + Socket.IO + WebRTC
 
 A real-time chat and video calling app. Built to be **explainable in an interview**: every
 feature maps to one clear technical decision, and the architecture was deliberately
@@ -42,6 +42,85 @@ decision (and why) is the most interesting thing to talk about in this project.
 
 **Deliberately excluded**: group calls beyond 6 people (would need an SFU media server, not
 mesh WebRTC — see Architecture), call recording, message read receipts.
+
+## Production audit — what was checked and fixed
+
+This pass went through the entire codebase (every backend route/model/middleware/socket
+handler, every frontend page/context/component/util) and ran everything that's actually
+runnable in a sandboxed CI-style environment: dependency install, `npm audit` on both
+packages, `node --check` on every backend file, a full frontend production build, and live
+`curl` testing of every endpoint that doesn't require a database (guest auth, 404 handling,
+input validation, auth middleware, CORS rejection).
+
+**Fixed:**
+- **Privacy leak**: `GET /api/users` (the contact list) was returning every user's email
+  address to any authenticated caller — including guest tokens — even though the frontend
+  never displays it. Now excluded from that query's projection.
+- **Dependency vulnerabilities**: `cloudinary` was pinned to a 1.x release with a known high-
+  severity arbitrary-argument-injection advisory. Upgraded to `cloudinary@2.10.1` via a
+  `package.json` `overrides` entry (the `multer-storage-cloudinary` package that wraps it
+  still lists a `^1.x` peer dependency, but its actual code only touches the stable
+  `cloudinary.v2` namespace, which is unchanged between major versions — verified this by
+  constructing the storage engine against the upgraded package and confirming it initializes
+  correctly). `npm audit` on the backend now reports **0 vulnerabilities**.
+- **Crash-loop risk**: `AuthContext` used to `JSON.parse` the saved user object with no
+  error handling — a corrupted/incompatible `localStorage` value (a manual edit, or a leftover
+  shape from an old version of the app) would throw on every single page load, trapping the
+  user in a reload loop even inside the error boundary. Now falls back to a clean logged-out
+  state and clears the bad value.
+
+**Known, left as-is (with reasoning):**
+- `multer@1.4.5-lts.2` shows a deprecation notice pushing toward multer 2.x, but this is the
+  patched LTS release with no open advisory against it (`npm audit` confirms 0 findings) —
+  a major-version bump wasn't made blind, since `multer-storage-cloudinary`'s compatibility
+  with multer 2.x couldn't be verified without live Cloudinary credentials in this
+  environment. Recommended follow-up once you can test a real upload end-to-end.
+- `esbuild`'s moderate advisory (via Vite) only affects the **local dev server**, not
+  anything shipped in `npm run build` output — not worth the Vite 8 breaking upgrade for a
+  dev-only surface.
+- `react-router-dom` has open moderate/high advisories (an open-redirect variant and an SSR-
+  hydration constructor-injection issue) with **no fix available within v6** — only
+  `7.18.2+` is patched. This app doesn't build any `<Link>`/`useNavigate()` target from
+  untrusted input (every route is a hardcoded string — `/chat`, `/login`, `/call/:roomId`),
+  so the realistic exploitability here is low, but a v7 migration is a genuine breaking
+  change (data-router APIs differ) that needs a full manual click-through to verify safely —
+  not something to force through a sandbox with no live browser to test in. Flagging as a
+  real follow-up, not silently leaving it unmentioned.
+- **This environment has no way to run a real MongoDB instance** (no `mongod` package
+  available in the sandbox's allowed repositories, no network access to MongoDB's download
+  servers) or real Cloudinary/VAPID credentials. Every route touching the database was
+  verified by careful manual code review — authorization checks, error handling, and
+  validation were all traced by hand — but **could not be exercised against a live database
+  in this pass**. Before you trust this in production, run through the checklist below on
+  your own machine with real credentials.
+
+## Before you deploy — a real end-to-end pass
+Everything above was checked as far as a sandboxed environment allows (dependency audits,
+static analysis, a live server hit with `curl`, a full production frontend build). It's not
+a substitute for actually running the app with a real database and two real browsers. Do
+this once, locally, before trusting it in production:
+1. `docker run -d -p 27017:27017 mongo` (or a free MongoDB Atlas cluster) + fill in real
+   Cloudinary keys, then run through: register, login, add a friend (from a second account),
+   send a text + an image, react to a message, start a 1-1 call, switch camera front/back on
+   an actual phone, start a group call with 3+ people, share your screen, minimize a call and
+   confirm the chat list underneath is still interactive.
+2. Generate real VAPID keys (`npx web-push generate-vapid-keys`), enable "Notify me when app
+   is closed" in Settings, fully close the app, and confirm a call/message from another
+   account still rings/notifies.
+3. Install it as a PWA (Add to Home Screen) on an actual phone and confirm it opens standalone
+   and the service worker doesn't mask a redeploy (see the network-first note below).
+4. **Refresh-token flow** (new): log in, open devtools → Application → Cookies, and confirm a
+   `refreshToken` cookie is set as `HttpOnly` (won't show its value in JS console — try
+   `document.cookie` and confirm it's absent from that list, which is the point). Log in, wait
+   15+ minutes without touching the tab, then perform any action (send a message, open a
+   chat) and confirm it works without a redirect to `/login` — that's the silent refresh
+   firing. Then open devtools → Network, throttle/block the `/api/auth/refresh` request once,
+   confirm the app degrades to a clean logout rather than a stuck loading state. Finally, log
+   out and confirm the `refreshToken` cookie is cleared.
+5. **Cross-origin cookie check** (matters once actually deployed, not on localhost): after
+   deploying to Netlify + Render, repeat step 4 on the real deployed URLs — a refresh cookie
+   that worked on `localhost` can still silently fail cross-origin if `CLIENT_URL` on the
+   backend doesn't exactly match the deployed frontend's origin (see CORS config below).
 
 ## Architecture
 
@@ -225,18 +304,28 @@ npm run dev
 ## Deployment
 1. **Database**: MongoDB Atlas free cluster
 2. **Image storage**: Cloudinary free account (cloud name, API key, API secret)
-3. **Backend**: Render (or Railway) — set `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL`
-   (your deployed frontend URL, **no trailing slash** — a trailing slash silently breaks
-   CORS since browsers never send one in the `Origin` header), the `CLOUDINARY_*` vars, and
-   optionally `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT_EMAIL` for background
-   call notifications
-4. **Frontend**: Vercel or Netlify — set `VITE_API_URL` to your backend URL. Both need a
-   rewrite so direct links to a client-side route (e.g. `/room/ABCD`, or `/chat?with=<id>`
-   from a tapped notification) don't 404 — Netlify picks up `frontend/public/_redirects`
-   (`/* /index.html 200`) automatically, Vercel picks up `frontend/vercel.json` automatically.
-   Both are already in this repo.
+3. **Backend**: Render — either click **New > Blueprint** and point it at this repo (it reads
+   `render.yaml` at the repo root and prompts you for every secret — `MONGO_URI`, `JWT_SECRET`,
+   `JWT_REFRESH_SECRET` — **make these two different random strings**, see the comment in
+   `.env.example` for why — `CLIENT_URL`, `CLOUDINARY_*`, and optionally `VAPID_*`), or set
+   it up manually with the same env vars. `CLIENT_URL` is your deployed frontend URL with
+   **no trailing slash** — a trailing slash silently breaks CORS since browsers never send
+   one in the `Origin` header. Render will hit `/api/health` to confirm each deploy is live
+   before shifting traffic to it.
+4. **Frontend**: Netlify — either **Add new site > Import from Git** (Netlify reads
+   `netlify.toml` at the repo root automatically — `base = "frontend"`, builds and publishes
+   `frontend/dist`) or Vercel (reads `frontend/vercel.json` automatically). Set `VITE_API_URL`
+   to your backend URL either way. Both need a rewrite so direct links to a client-side route
+   (e.g. `/room/ABCD`, or `/chat?with=<id>` from a tapped notification) don't 404 — already
+   handled by `netlify.toml`/`frontend/public/_redirects` and `frontend/vercel.json`
+   respectively, both already in this repo.
 5. Video calls need HTTPS in production (`getUserMedia` requires a secure context) — Render
-   and Vercel/Netlify both provide this by default
+   and Netlify/Vercel both provide this by default
+6. **The refresh-token cookie needs the two origins to actually match.** If `CLIENT_URL` on
+   the backend doesn't exactly equal the frontend's real deployed origin (including
+   `https://`, no trailing slash), the browser will silently refuse to send the
+   `refreshToken` cookie cross-origin and users will get logged out every 15 minutes instead
+   of staying signed in — see the "Cross-origin cookie check" step above.
 
 ## Talking points for interviews
 - **Why polling instead of WebSocket transport?** Socket.IO normally starts on HTTP

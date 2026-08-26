@@ -8,6 +8,12 @@ const userSchema = new mongoose.Schema(
     avatarColor: { type: String, default: "#F4600F" }, // fallback initial-circle color if no photo
     avatarUrl: { type: String, default: null }, // uploaded profile picture, takes priority if set
     friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // SHA-256 hash of the current valid refresh token (see utils/tokens.js).
+    // Never the plaintext token. Rotated on every /auth/refresh call, and
+    // cleared on logout — that's what makes both "rotate on use" and
+    // "logout invalidates the session server-side" possible. `select: false`
+    // so it never accidentally rides along on a normal `User.find()`.
+    refreshTokenHash: { type: String, default: null, select: false },
     // One entry per device/browser that has enabled "ring when app is
     // closed". Structure matches the PushSubscription object the browser
     // hands back from pushManager.subscribe() — endpoint + encryption keys.

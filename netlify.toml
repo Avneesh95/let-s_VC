@@ -1,0 +1,38 @@
+[build]
+  base = "frontend"
+  publish = "dist"
+  command = "npm run build"
+
+# SPA routing: any path that isn't a real file (e.g. a deep link to
+# /chat or a reload while on /call/abc123) should fall through to
+# index.html and let React Router take over — without this, Netlify
+# returns its own 404 page for anything but the root path.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Reasonable default security headers for a static SPA. CSP is
+# intentionally not set here — this app talks to a separate API origin,
+# loads Cloudinary-hosted images, and registers a service worker, so a
+# blanket CSP would need careful per-directive tuning to avoid breaking
+# those; adding one is a good follow-up once the final deployed origins
+# are locked in.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# The service worker file itself must never be cached by the CDN/browser —
+# a stale cached sw.js is exactly what causes "my deploy doesn't show up
+# for users" PWA bugs, since the browser keeps running the old worker
+# indefinitely instead of picking up the new one.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

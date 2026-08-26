@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 import { CallInviteProvider, useCallInvite } from "./context/CallInviteContext";
@@ -26,12 +26,30 @@ function PrivateRoute({ children, requireFullAccount }) {
 // UI is rendered by <ActiveCallOverlay> below, not by this route, which is
 // exactly what lets the call keep running after the URL changes away from
 // here (minimizing).
+//
+// One thing this has to guard against: minimizing/expanding a call moves
+// through real browser history entries (see the Minimize button and
+// bubble tap in GroupCall.jsx), and a call that's fully hung up still
+// leaves those old /room/:roomCode entries sitting in history behind it —
+// there's no way to retroactively erase them. Without this guard, pressing
+// the back button enough times eventually walks into one of those dead
+// entries and this effect would cheerfully start the call right back up.
+// Room codes are freshly generated per call and never reused, so refusing
+// to (re)join any call this session has already hung up on is always safe
+// and never blocks starting a genuinely new one.
 function CallRouteEntry() {
   const { roomCode } = useParams();
   const { activeRoomCode, startCall } = useCallInvite();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   useEffect(() => {
     const normalized = String(roomCode || "").toUpperCase();
-    if (normalized && normalized !== activeRoomCode) startCall(normalized);
+    if (!normalized || normalized === activeRoomCode) return;
+    if (sessionStorage.getItem(`callEnded:${normalized}`) === "1") {
+      navigate(user ? "/chat" : "/", { replace: true });
+      return;
+    }
+    startCall(normalized);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
   return null;

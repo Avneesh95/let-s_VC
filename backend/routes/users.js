@@ -17,7 +17,13 @@ router.get("/", protect, async (req, res) => {
   try {
     const [me, users, pendingRequests] = await Promise.all([
       User.findById(req.userId).select("friends"),
-      User.find({ _id: { $ne: req.userId } }).select("username email avatarColor avatarUrl"),
+      // Deliberately excludes email — the frontend never displays another
+      // user's email (only their own, on the settings screen via a
+      // separate authenticated call), and this endpoint is reachable by
+      // any holder of a valid token, including guest tokens. Returning
+      // every registered user's email address here would be an unrelated-
+      // to-the-feature privacy leak.
+      User.find({ _id: { $ne: req.userId } }).select("username avatarColor avatarUrl"),
       FriendRequest.find({ $or: [{ sender: req.userId }, { receiver: req.userId }] }),
     ]);
 

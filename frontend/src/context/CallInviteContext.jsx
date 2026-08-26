@@ -30,7 +30,20 @@ export function CallInviteProvider({ children }) {
   // hang-up) clears it — navigating elsewhere while minimized must not.
   const [activeRoomCode, setActiveRoomCode] = useState(null);
   const startCall = (roomCode) => setActiveRoomCode(String(roomCode).toUpperCase());
-  const endCall = () => setActiveRoomCode(null);
+  // Deliberately does NOT clear the "this call is over" record — see
+  // CallRouteEntry in App.jsx. Room codes are freshly generated per call
+  // (never reused), so remembering every code we've hung up on this
+  // session and refusing to silently rejoin any of them is always safe,
+  // never blocks starting a genuinely new call, and is what stops the
+  // browser's back button from walking into a dead call's old
+  // /room/:code history entry and reopening it. One key per code (rather
+  // than a single "last ended" value) so a second call in the same
+  // session doesn't make the first call's old history entry look "not
+  // ended" again.
+  const endCall = () => {
+    if (activeRoomCode) sessionStorage.setItem(`callEnded:${activeRoomCode}`, "1");
+    setActiveRoomCode(null);
+  };
   const activeNotification = useRef(null);
   // Auto-clears a stuck ring if we never hear back at all (missed/dropped
   // socket event) — belt-and-suspenders alongside the server's explicit
