@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-paper: 250 248 244;
+    --color-ink: 22 25 22;
+    --color-surface: 255 255 255;
+    --color-line: 0 0 0;
+    --color-chatbg: 244 241 234;
+    --color-bubble-own: 250 227 204;
+  }
+
+  .dark {
+    --color-paper: 10 9 9;
+    --color-ink: 238 234 228;
+    --color-surface: 21 18 17;
+    --color-line: 255 255 255;
+    --color-chatbg: 13 11 11;
+    --color-bubble-own: 46 27 13;
+  }
+
+  body {
+    font-family: Inter, system-ui, sans-serif;
+    color: rgb(var(--color-ink));
+    background-color: rgb(var(--color-paper));
+  }
+}

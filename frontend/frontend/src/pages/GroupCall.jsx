@@ -1,0 +1,1800 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useMatch, useNavigate } from "react-router-dom";
+import { useCallInvite } from "../context/CallInviteContext";
+import {
+  Mic,
+  MicOff,
+  Video as VideoIcon,
+  VideoOff,
+  ScreenShare,
+  MessageCircle,
+  PhoneOff,
+  RefreshCw,
+  Link2,
+  X,
+  Send,
+  Minimize2,
+  Maximize2,
+} from "lucide-react";
+import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
+import ICE_SERVERS from "../utils/iceServers";
+import { startRingback, stopRingtone, playMessageTone } from "../utils/ringtone";
+
+// Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
+// counter, the backend is what actually enforces the cap.
+const MAX_PARTICIPANTS = 6;
+
+// Wraps the floating self-view PiP (used when there's exactly one other
+// participant, i.e. a 1-1-style call) to make it draggable anywhere within
+// the video area — the same "move your own bubble" behavior WhatsApp uses.
+// Uses the Pointer Events API so one set of handlers covers both mouse and
+// touch, rather than maintaining separate mouse/touch listeners.
+function DraggableSelfView({ children, widthClass }) {
+  const elRef = useRef(null);
+  const [pos, setPos] = useState({ top: 16, left: null }); // left resolves to top-right on first measure
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0 });
+
+  useEffect(() => {
+    const el = elRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    const parentRect = parent.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    setPos({ top: 84, left: parentRect.width - elRect.width - 16 });
+  }, []);
+
+  const clamp = (left, top) => {
+    const el = elRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return { left, top };
+    const parentRect = parent.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    return {
+      left: Math.max(0, Math.min(left, parentRect.width - elRect.width)),
+      top: Math.max(0, Math.min(top, parentRect.height - elRect.height)),
+    };
+  };
+
+  const onPointerDown = (e) => {
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: pos.left ?? 0,
+      origTop: pos.top ?? 0,
+    };
+    elRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setPos(clamp(dragRef.current.origLeft + dx, dragRef.current.origTop + dy));
+  };
+
+  const onPointerUp = (e) => {
+    dragRef.current.active = false;
+    elRef.current?.releasePointerCapture(e.pointerId);
+  };
+
+  return (
+    <div
+      ref={elRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      className={`absolute ${widthClass} cursor-grab active:cursor-grabbing touch-none select-none z-20`}
+      style={{ top: pos.top, left: pos.left ?? undefined }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// The floating bubble shown while the call is minimized (back button, or
+// the explicit minimize button). Draggable anywhere on screen like the
+// self-view PiP, but fixed to the viewport rather than a parent element
+// since it needs to float above the whole page. Tapping it restores the
+// full call screen; a small hang-up button lets you end the call directly
+// from the bubble without expanding first.
+function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onHangUp, name, avatarUrl }) {
+  const videoRef = useRef(null);
+  const elRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0, moved: false });
+
+  useEffect(() => {
+    if (videoRef.current && stream) videoRef.current.srcObject = stream;
+  }, [stream]);
+
+  useEffect(() => {
+    const margin = 16;
+    const w = 112;
+    setPos({ left: window.innerWidth - w - margin, top: window.innerHeight - 150 - margin - 84 });
+  }, []);
+
+  const clamp = (left, top) => {
+    const el = elRef.current;
+    if (!el) return { left, top };
+    const rect = el.getBoundingClientRect();
+    return {
+      left: Math.max(0, Math.min(left, window.innerWidth - rect.width)),
+      top: Math.max(0, Math.min(top, window.innerHeight - rect.height)),
+    };
+  };
+
+  const onPointerDown = (e) => {
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: pos?.left ?? 0,
+      origTop: pos?.top ?? 0,
+      moved: false,
+    };
+    elRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+    setPos(clamp(dragRef.current.origLeft + dx, dragRef.current.origTop + dy));
+  };
+
+  const onPointerUp = (e) => {
+    const wasDrag = dragRef.current.moved;
+    dragRef.current.active = false;
+    elRef.current?.releasePointerCapture(e.pointerId);
+    // A tap (no real movement) restores the full call screen; a drag just
+    // repositions the bubble and shouldn't also expand it.
+    if (!wasDrag) onExpand();
+  };
+
+  if (!pos) return null;
+
+  return (
+    <div
+      ref={elRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      style={{ top: pos.top, left: pos.left }}
+      className="fixed z-50 w-28 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/70 bg-black cursor-grab active:cursor-grabbing touch-none select-none"
+    >
+      {/* The <video> element stays mounted whenever a stream exists at
+          all, with the placeholder overlaid on top rather than swapped
+          in for it. GroupCall's VideoTile hit this exact bug already
+          (see the comment there): a <video> that unmounts/remounts based
+          on a condition OTHER than `stream` itself (here, `cameraOff`)
+          doesn't get srcObject reassigned on remount, because the
+          binding effect only reruns when the `stream` reference changes
+          — so a freshly-remounted element stays blank/black even though
+          a perfectly good stream is available. Overlaying instead of
+          swapping means the same <video> node persists across cameraOff
+          toggles, so it can never end up unbound. */}
+      {stream && <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""} ${cameraOff ? "invisible" : ""}`}
+      />}
+      {(!stream || cameraOff) && (
+        // Shows whenever there's genuinely no video to display yet (no
+        // one else has joined, or both cameras are off) — the same
+        // recognizable colored-initial avatar as the full call screen,
+        // not a generic app logo, so it still reads as "this is a call
+        // with so-and-so" even minimized down to a small bubble.
+        <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-1 px-2">
+          <ParticipantAvatar name={name} avatarUrl={avatarUrl} size="w-10 h-10" textSize="text-base" />
+        </div>
+      )}
+      <button
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onHangUp();
+        }}
+        title="Hang up"
+        className="absolute bottom-1.5 right-1.5 bg-danger hover:opacity-90 transition-opacity rounded-full p-1.5 shadow-lg"
+      >
+        <PhoneOff className="w-3.5 h-3.5" strokeWidth={2} />
+      </button>
+      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-sm rounded-full p-1">
+        <Maximize2 className="w-3 h-3 text-white/80" strokeWidth={2} />
+      </div>
+    </div>
+  );
+}
+
+// A stable, consistent color per name (same idea as Avatar.jsx's
+// avatarColor, but for call participants — we only have their username
+// here, not their real avatarColor from the DB) so the same person always
+// gets the same colored circle rather than a random one each render.
+const AVATAR_PALETTE = ["#F4600F", "#7C5CFC", "#0EA5A4", "#DB2777", "#2563EB", "#B45309", "#059669", "#9333EA"];
+function colorForName(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+}
+
+// WhatsApp/FaceTime-style "camera is off" state: the person's own picture
+// (or a colored initial when there isn't one) filling the tile, not a
+// generic muted-camera icon — recognizably *them*, not just "no video".
+function ParticipantAvatar({ name, avatarUrl, size = "w-20 h-20", textSize = "text-3xl" }) {
+  if (avatarUrl) {
+    return <img src={avatarUrl} alt={name} className={`${size} rounded-full object-cover ring-2 ring-white/10`} />;
+  }
+  const color = colorForName(name || "?");
+  return (
+    <span
+      className={`${size} rounded-full text-white font-display font-semibold flex items-center justify-center ring-2 ring-white/10 relative overflow-hidden shrink-0`}
+      style={{ background: `linear-gradient(150deg, ${color} 0%, rgba(0,0,0,0.35) 140%)` }}
+    >
+      <span className="absolute inset-0 bg-gradient-to-tr from-white/10 via-transparent to-transparent" />
+      <span className={`relative ${textSize}`}>{(name || "?")[0].toUpperCase()}</span>
+    </span>
+  );
+}
+
+function VideoTile({ stream, label, muted, fullSize, cameraOff, mirrored, portrait, connState, onRetry, avatarUrl, avatarName }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  const showFailed = !stream && connState === "failed";
+  const statusText = connState === "reconnecting" ? "Reconnecting…" : "Connecting…";
+
+  return (
+    <div
+      className={
+        fullSize
+          ? "relative w-full h-full bg-black overflow-hidden flex items-center justify-center"
+          : `relative bg-black rounded-xl overflow-hidden ${
+              // Taller than a standard 3:4 photo crop — closer to what
+              // WhatsApp's own draggable self-view PiP looks like, and
+              // gives noticeably more headroom/vertical framing than the
+              // old 3:4 crop did.
+              portrait ? "aspect-[3/5]" : "aspect-video"
+            } flex items-center justify-center ring-1 ring-white/10`
+      }
+    >
+      {stream ? (
+        // Always keep the <video> element mounted — toggling camera on/off
+        // only changes whether the placeholder covers it, never unmounts
+        // it. Unmounting and remounting on every toggle was the bug: a
+        // freshly mounted <video> needs srcObject reassigned, but the
+        // effect above only re-runs when `stream` itself changes, not on
+        // every mount, so a toggled-back-on video would stay blank.
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={muted}
+          className={`w-full h-full ${fullSize ? "object-contain" : "object-cover"} ${
+            mirrored ? "-scale-x-100" : ""
+          }`}
+        />
+      ) : showFailed ? (
+        // Stuck for too long even after an automatic retry (almost always
+        // a congested TURN relay — see iceServers.js) — give the person
+        // something to do instead of an indefinite spinner.
+        <div className="flex flex-col items-center gap-2 px-3 text-center">
+          <span className="text-white/70 text-sm">Connection issue</span>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="text-xs bg-white/15 hover:bg-white/25 transition-colors rounded-full px-3 py-1.5 flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3 h-3" strokeWidth={2} />
+              Retry
+            </button>
+          )}
+        </div>
+      ) : (
+        <span className="text-white/60 text-sm">{statusText}</span>
+      )}
+      {cameraOff && (
+        <div className="absolute inset-0 bg-callbg flex items-center justify-center">
+          <ParticipantAvatar name={avatarName || label} avatarUrl={avatarUrl} />
+        </div>
+      )}
+      {label && (
+        <span className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-0.5 rounded-md">
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export default function GroupCall({ roomCode: rawRoomCode }) {
+  // Normalize casing here too — the join/create forms already uppercase
+  // the code, but someone pasting or typing the URL directly (bypassing
+  // those forms) could land here with different casing, which would
+  // silently put them in a *different* room than intended.
+  const roomCode = String(rawRoomCode || "").toUpperCase();
+  const navigate = useNavigate();
+  const { endCall } = useCallInvite();
+  // This component is now mounted for as long as the call is active,
+  // independent of the route (see ActiveCallOverlay in App.jsx) — so
+  // "minimized" is just "the URL isn't /room/:roomCode anymore", not its
+  // own piece of state. That single change is what fixes minimizing
+  // showing a blank screen: instead of this being the only thing on the
+  // page, the app underneath (whatever route the person navigated to) is
+  // free to render normally, with only the small bubble floating on top
+  // of it — the same way WhatsApp's call bubble floats over your chat
+  // list. It also means the phone's back button "just works" for
+  // minimizing: going back to the previous page is a real navigation, so
+  // this stops matching /room/:roomCode and shrinks to the bubble on its
+  // own, with no manual history-hacking needed.
+  const matchesCallRoute = useMatch("/room/:roomCode");
+  const isMinimized = !matchesCallRoute;
+  // Set when this room was entered via a friend's call invite rather than
+  // a shared public link — in that case we hide the room code/participant
+  // count (nothing to share) and show who you're calling instead, matching
+  // how a normal 1-1 video call looks rather than a "join a room" screen.
+  // Read from sessionStorage (not navigation state) specifically so this
+  // survives a page refresh — navigation state only lives for the single
+  // navigation event that set it and is gone the moment the page reloads.
+  const directCallInfo = JSON.parse(sessionStorage.getItem(`directCall:${roomCode}`) || "null");
+  const isDirectCall = !!directCallInfo;
+  const directCallOtherName = directCallInfo?.otherUserName;
+  const { user, guestLogin } = useAuth();
+  const { socket } = useSocket();
+
+  // If someone lands here without being logged in at all (e.g. opened a
+  // shared room link cold), let them join with just a name right here
+  // instead of bouncing them to the generic home page and losing the
+  // room code they were trying to join.
+  const [guestName, setGuestName] = useState("");
+  const [guestJoining, setGuestJoining] = useState(false);
+  const [guestError, setGuestError] = useState("");
+
+  const handleGuestJoin = async (e) => {
+    e.preventDefault();
+    if (!guestName.trim()) {
+      setGuestError("Enter your name");
+      return;
+    }
+    setGuestError("");
+    setGuestJoining(true);
+    try {
+      await guestLogin(guestName.trim());
+    } catch (err) {
+      setGuestError("Something went wrong — try again");
+    } finally {
+      setGuestJoining(false);
+    }
+  };
+
+  const [localStream, setLocalStream] = useState(null);
+  // userId -> { username, stream }
+  const [participants, setParticipants] = useState({});
+  // Mirrors `participants` size for use inside createPeerConnection, which
+  // can't depend on `participants` directly (that would recreate the
+  // callback, and every peer connection, on every join/leave). Read via
+  // this ref instead so bitrate decisions use the current room size
+  // without that churn.
+  const roomSizeRef = useRef(1);
+  useEffect(() => {
+    roomSizeRef.current = Object.keys(participants).length + 1; // +1 for self
+  }, [participants]);
+  const [error, setError] = useState("");
+  // Distinguishes "never connected yet" (ringing out) from "was connected,
+  // then the other side left" — only a direct 1-1 call needs this: a group
+  // room being momentarily empty is normal (everyone else could still
+  // join), but a 1-1 call has exactly one other person, so once they leave
+  // there is nothing left to be "waiting" for.
+  const hadConnectedRef = useRef(false);
+  const [callEnded, setCallEnded] = useState(false);
+
+  useEffect(() => {
+    if (Object.keys(participants).length > 0) hadConnectedRef.current = true;
+  }, [participants]);
+
+  // Once the call is marked ended, actually leave — after a short beat so
+  // "Call ended" is visible rather than the screen just vanishing.
+  useEffect(() => {
+    if (!callEnded) return;
+    stopRingtone();
+    // Surface the "Call ended" message even if it ended while minimized —
+    // jump back to the call screen briefly before actually leaving.
+    if (!matchesCallRoute) navigate(`/room/${roomCode}`, { replace: true });
+    const t = setTimeout(() => {
+      endCall();
+      navigate(user ? "/chat" : "/", { replace: true });
+    }, 1600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callEnded]);
+
+  // Ringback tone (the caller's-side "brrring... brrring" while waiting)
+  // — only for direct 1-1 calls, only while genuinely alone waiting, and
+  // stopped the moment someone joins, the call errors out, or this page
+  // is left.
+  useEffect(() => {
+    const stillAlone = Object.keys(participants).length === 0;
+    if (isDirectCall && stillAlone && !error && !callEnded) {
+      startRingback();
+    } else {
+      stopRingtone();
+    }
+    return () => stopRingtone();
+  }, [isDirectCall, participants, error, callEnded]);
+  const [facingMode, setFacingMode] = useState("user");
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isMicOn, setIsMicOn] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  // Screen sharing is a desktop-browser feature in practice — iOS Safari
+  // doesn't implement getDisplayMedia at all, and Android Chrome's support
+  // is unreliable/OS-version-dependent. Feature-detecting here (rather than
+  // just hiding the button visually) means a phone never even sees a
+  // control that's likely to silently fail if tapped.
+  const [screenShareSupported] = useState(
+    () => typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia
+  );
+  // Remembers the camera video track while screen sharing is active, so
+  // stopping the share can restore the camera feed exactly as it was.
+  const cameraTrackRef = useRef(null);
+  // isMinimized itself is derived above from the current route, not local
+  // state — see the comment by matchesCallRoute.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]); // { senderId, username, text, timestamp }
+  const [chatInput, setChatInput] = useState("");
+  // Unread in-call chat messages — the chat panel is an overlay the person
+  // has to deliberately open, so a message sent while it's closed (very
+  // common: it's closed by default) previously vanished into it with
+  // nothing on the toggle button to say it arrived.
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const chatOpenRef = useRef(chatOpen);
+  useEffect(() => {
+    chatOpenRef.current = chatOpen;
+    if (chatOpen) setUnreadChatCount(0);
+  }, [chatOpen]);
+
+  // WhatsApp/FaceTime-style call screen: video fills the entire viewport
+  // and the header/controls float over it as translucent overlays instead
+  // of taking up their own dedicated layout rows. Those overlays auto-hide
+  // after a few seconds of inactivity so the video gets the whole screen,
+  // and reappear on any tap/mouse movement. Kept always-visible while
+  // still ringing/waiting (nothing else to look at yet) or while the chat
+  // panel is open (so its own overlay doesn't fight with a control bar
+  // fading out underneath it).
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const hideControlsTimer = useRef(null);
+  const forceControlsVisible = Object.keys(participants).length + 1 === 1 || chatOpen;
+
+  const bumpControlsVisible = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(hideControlsTimer.current);
+    if (!forceControlsVisible) {
+      hideControlsTimer.current = setTimeout(() => setControlsVisible(false), 4000);
+    }
+  }, [forceControlsVisible]);
+
+  useEffect(() => {
+    bumpControlsVisible();
+    return () => clearTimeout(hideControlsTimer.current);
+  }, [bumpControlsVisible]);
+
+  const peerConnections = useRef(new Map()); // userId -> RTCPeerConnection
+  const pendingCandidates = useRef(new Map()); // userId -> queued incoming candidates (before remoteDescription is set)
+  const outgoingCandidates = useRef(new Map()); // userId -> queued outgoing candidates (before the debounced flush)
+  const outgoingFlushTimers = useRef(new Map()); // userId -> flush timeout id
+  const staleConnectionTimers = useRef(new Map()); // userId -> "still not connected" timeout id
+  const reconnectAttemptsLeft = useRef(new Map()); // userId -> automatic retries remaining
+  const localStreamRef = useRef(null); // avoids stale closures inside socket handlers
+  // Mirrors `socket` for the same reason as localStreamRef above: the
+  // unmount-cleanup effect below intentionally has an empty dependency
+  // array (it must run its cleanup exactly once, on real unmount) — but
+  // that means whatever it closes over is frozen at whatever `socket` was
+  // during this component's *first* render. If GroupCall ever mounts
+  // before the socket is ready yet (a page refresh mid-call, or any
+  // timing where SocketProvider hasn't finished creating the socket by
+  // the time this component's function body first runs), that closure
+  // captures `null` forever — so `socket?.emit("leave-room")` on hang-up
+  // silently no-ops, the server never finds out this side left, and the
+  // other person's screen is left stuck on "Connecting…"/never told the
+  // call ended. Reading through a ref instead always sees the current
+  // socket at the moment of unmount, regardless of what it was at mount.
+  const socketRef = useRef(socket);
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
+
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
+
+  const flushPending = async (userId, pc) => {
+    const queue = pendingCandidates.current.get(userId) || [];
+    while (queue.length > 0) {
+      const candidate = queue.shift();
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error("Failed to add queued ICE candidate", err);
+      }
+    }
+  };
+
+  // Sends queued outgoing candidates for one peer as a single batch instead
+  // of one socket.emit per candidate — see the comment in iceServers.js and
+  // backend/socket/socket.js for why this matters much more for group calls
+  // (several peer connections gathering candidates concurrently) than 1-1.
+  const flushOutgoingCandidates = useCallback(
+    (remoteUserId) => {
+      const queue = outgoingCandidates.current.get(remoteUserId);
+      if (!queue || queue.length === 0) return;
+      outgoingCandidates.current.set(remoteUserId, []);
+      socket.emit("room-ice-candidates", { to: remoteUserId, candidates: queue });
+    },
+    [socket]
+  );
+
+  const clearStaleConnectionTimer = (remoteUserId) => {
+    clearTimeout(staleConnectionTimers.current.get(remoteUserId));
+    staleConnectionTimers.current.delete(remoteUserId);
+  };
+
+  // If a peer connection hasn't reached "connected" within a few seconds,
+  // it's very likely stuck relaying through a congested TURN server (the
+  // #1 cause of a group call sitting on "Connecting…" forever — see
+  // iceServers.js). Rather than leaving it hung indefinitely, tear it down
+  // and re-send a fresh offer. Only the participant with the
+  // lexicographically smaller userId re-offers — a simple, deterministic
+  // tie-break so both sides don't race to renegotiate at the same time.
+  const scheduleStaleConnectionCheck = useCallback(
+    (remoteUserId) => {
+      clearStaleConnectionTimer(remoteUserId);
+      const timer = setTimeout(() => {
+        const pc = peerConnections.current.get(remoteUserId);
+        if (!pc) return;
+        const state = pc.connectionState || pc.iceConnectionState;
+        if (state === "connected" || state === "completed") return;
+        handleStuckConnection(remoteUserId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, 12000);
+      staleConnectionTimers.current.set(remoteUserId, timer);
+    },
+    // handleStuckConnection is defined below and stable via useCallback,
+    // but referencing it here would create a circular dependency — it's
+    // read fresh from the ref-backed closure each time the timer fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const reconnectToPeer = useCallback(
+    async (remoteUserId) => {
+      const oldPc = peerConnections.current.get(remoteUserId);
+      oldPc?.close();
+      peerConnections.current.delete(remoteUserId);
+      pendingCandidates.current.delete(remoteUserId);
+      outgoingCandidates.current.delete(remoteUserId);
+      clearTimeout(outgoingFlushTimers.current.get(remoteUserId));
+      outgoingFlushTimers.current.delete(remoteUserId);
+      try {
+        const pc = createPeerConnectionRef.current(remoteUserId);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("room-offer", { to: remoteUserId, offer });
+        scheduleStaleConnectionCheck(remoteUserId);
+      } catch (err) {
+        console.error("Reconnect attempt failed for", remoteUserId, err);
+      }
+    },
+    [socket, scheduleStaleConnectionCheck]
+  );
+
+  const handleStuckConnection = useCallback(
+    (remoteUserId) => {
+      setParticipants((prev) =>
+        prev[remoteUserId]
+          ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], connState: "reconnecting" } }
+          : prev
+      );
+      const isInitiator = user?.id && String(user.id) < String(remoteUserId);
+      const attemptsLeft = reconnectAttemptsLeft.current.get(remoteUserId) ?? 2;
+      if (attemptsLeft > 0 && isInitiator) {
+        reconnectAttemptsLeft.current.set(remoteUserId, attemptsLeft - 1);
+        reconnectToPeer(remoteUserId);
+      } else if (attemptsLeft <= 0) {
+        setParticipants((prev) =>
+          prev[remoteUserId]
+            ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], connState: "failed" } }
+            : prev
+        );
+      }
+      // If not the initiator and retries remain, just wait — the other side
+      // (the smaller userId) is the one that re-offers, and our
+      // handleRoomOffer will rebuild the connection when it arrives.
+    },
+    [user, reconnectToPeer]
+  );
+
+  // Lets scheduleStaleConnectionCheck's setTimeout call the *current*
+  // createPeerConnection/handleStuckConnection without listing them as
+  // deps (they're defined in terms of each other) — always read through
+  // the ref so the closure never goes stale across re-renders.
+  const createPeerConnectionRef = useRef(null);
+  const handleStuckConnectionRef = useRef(handleStuckConnection);
+  useEffect(() => {
+    handleStuckConnectionRef.current = handleStuckConnection;
+  }, [handleStuckConnection]);
+
+  const createPeerConnection = useCallback(
+    (remoteUserId) => {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          const queue = outgoingCandidates.current.get(remoteUserId) || [];
+          queue.push(event.candidate);
+          outgoingCandidates.current.set(remoteUserId, queue);
+          clearTimeout(outgoingFlushTimers.current.get(remoteUserId));
+          outgoingFlushTimers.current.set(
+            remoteUserId,
+            setTimeout(() => flushOutgoingCandidates(remoteUserId), 100)
+          );
+        } else {
+          // null candidate = ICE gathering finished for this connection —
+          // flush whatever's left immediately rather than waiting out the
+          // debounce.
+          clearTimeout(outgoingFlushTimers.current.get(remoteUserId));
+          flushOutgoingCandidates(remoteUserId);
+        }
+      };
+
+      const handleStateChange = () => {
+        const state = pc.connectionState || pc.iceConnectionState;
+        setParticipants((prev) =>
+          prev[remoteUserId] ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], connState: state } } : prev
+        );
+        if (state === "failed") {
+          handleStuckConnectionRef.current(remoteUserId);
+        }
+      };
+      pc.onconnectionstatechange = handleStateChange;
+      pc.oniceconnectionstatechange = handleStateChange;
+
+      pc.ontrack = (event) => {
+        clearStaleConnectionTimer(remoteUserId);
+        reconnectAttemptsLeft.current.set(remoteUserId, 2);
+        setParticipants((prev) => ({
+          ...prev,
+          [remoteUserId]: {
+            ...(prev[remoteUserId] || {}),
+            stream: event.streams[0],
+            connState: "connected",
+            // A freshly-received video track is very often still `muted`
+            // for the first moment or two (no frames decoded yet) — this
+            // was rendering as a plain black rectangle indistinguishable
+            // from broken, which is exactly what "minimize shows a blank
+            // screen" and "the caller's tile is just black" reports were.
+            // Seed the real state here so the UI can show the "Connecting…"
+            // placeholder instead of a false black frame.
+            ...(event.track.kind === "video" ? { remoteCameraOff: event.track.muted } : {}),
+          },
+        }));
+
+        // Track the other side actually turning their camera on/off for as
+        // long as this connection lives — a MediaStreamTrack fires `mute`
+        // when its source stops delivering frames (camera disabled on
+        // their end, or the connection briefly stalls) and `unmute` the
+        // moment frames resume. Without listening for this, our UI had no
+        // way to distinguish "their camera is off" from "still blank/
+        // broken", so it always assumed video was showing even when the
+        // track was silently muted.
+        if (event.track.kind === "video") {
+          const setCameraOff = (off) => {
+            setParticipants((prev) =>
+              prev[remoteUserId] ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], remoteCameraOff: off } } : prev
+            );
+          };
+          event.track.onmute = () => setCameraOff(true);
+          event.track.onunmute = () => setCameraOff(false);
+        }
+        // Voice lag fix: by default a browser's jitter buffer adapts its
+        // target delay upward whenever the network looks congested or
+        // jittery — trading latency for smoothness. That's the right
+        // default for video, but for audio it's the single biggest cause
+        // of a call "lagging" even once the connection itself is healthy:
+        // the buffer grows to 150-300ms+ and stays there. Requesting a
+        // lower playout delay for the audio track trims that base latency;
+        // the trade-off is a slightly higher chance of an audible glitch
+        // if the network genuinely stalls, which is the right trade for a
+        // live conversation. (Chromium-based browsers only — the API
+        // isn't part of the WebRTC spec yet, so this is a no-op elsewhere,
+        // not a crash risk.)
+        const audioReceiver = event.receiver;
+        if (audioReceiver?.track?.kind === "audio" && "playoutDelayHint" in audioReceiver) {
+          try {
+            audioReceiver.playoutDelayHint = 0.05;
+          } catch (err) {
+            // Unsupported in this browser — falls back to default buffering.
+          }
+        }
+      };
+
+      localStreamRef.current?.getTracks().forEach((track) => {
+        const sender = pc.addTrack(track, localStreamRef.current);
+
+        // Prefer VP9 over VP8 when the browser supports codec selection
+        // (Chromium-based browsers; Safari/Firefox fall through safely).
+        // VP9 encodes noticeably cleaner video at the same bitrate — since
+        // mesh WebRTC forces us to cap bitrate hard as the room grows (see
+        // below), getting more picture quality per bit matters more here
+        // than in a typical SFU app. Must happen before createOffer()
+        // generates SDP, which is why this runs synchronously right after
+        // addTrack rather than after the connection is established.
+        if (track.kind === "video" && typeof RTCRtpTransceiver !== "undefined" && "setCodecPreferences" in RTCRtpTransceiver.prototype) {
+          try {
+            const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
+            const { codecs } = RTCRtpSender.getCapabilities("video") || {};
+            if (transceiver && codecs?.length) {
+              const vp9 = codecs.filter((c) => c.mimeType === "video/VP9");
+              const rest = codecs.filter((c) => c.mimeType !== "video/VP9");
+              if (vp9.length) transceiver.setCodecPreferences([...vp9, ...rest]);
+            }
+          } catch (err) {
+            // Not fatal — falls back to the browser's default codec choice.
+          }
+        }
+
+        // Voice quality: browsers default a WebRTC audio track to a fairly
+        // low bitrate tuned for narrowband speech (~32kbps). 128kbps opus
+        // (mono — this is a voice call, not music, so stereo would just
+        // double the data for no audible gain) is effectively transparent
+        // for voice and costs almost nothing: unlike video, audio bandwidth
+        // doesn't meaningfully scale with room size, so there's no reason
+        // to keep it capped low the way video has to be.
+        if (track.kind === "audio") {
+          try {
+            const params = sender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+            params.encodings[0].maxBitrate = 128000;
+            sender.setParameters(params).catch(() => {});
+          } catch (err) {
+            // Not fatal — some browsers don't support setParameters this
+            // early in the connection lifecycle. The call still works, just
+            // at the default bitrate.
+          }
+        }
+        // Voice lag, real cause #1: this is mesh WebRTC (see socket.js),
+        // so a device uploads one full video stream *per other
+        // participant*, not once total. With no cap, the browser's
+        // bandwidth estimator will happily push each of those streams up
+        // toward 1.5-2.5mbps on a decent camera — for a 6-person call
+        // that's 5 outbound streams competing for upload bandwidth most
+        // home/mobile connections don't have (typical home upload is
+        // 5-20mbps, and mobile uplinks are often far less). When upload
+        // saturates, packets queue and audio — sharing the same
+        // congested link — is what visibly lags, even though it's the
+        // video that's actually causing the congestion. A real SFU-based
+        // app (see the WhatsApp/imo comparison in iceServers.js) doesn't
+        // hit this at all, since each device uploads only once regardless
+        // of room size — the server does the fan-out.
+        //
+        // HD tiers: 1-1 calls get a real 1080p-grade cap (only one
+        // outbound stream, most home/mobile uplinks handle this fine).
+        // Small groups get a solid 720p cap. Larger rooms get both a
+        // lower bitrate cap *and* a resolution scale-down — sending full
+        // 1080p pixels at a bitrate that can't actually carry them just
+        // produces a blocky 1080p frame, not an HD one; matching
+        // resolution to bitrate is what actually looks sharp.
+        if (track.kind === "video") {
+          const others = Math.max(1, roomSizeRef.current - 1);
+          const { capBps, scaleDownBy } =
+            others <= 1
+              ? { capBps: 3500000, scaleDownBy: 1 }
+              : others <= 3
+              ? { capBps: 1200000, scaleDownBy: 1.5 }
+              : { capBps: 700000, scaleDownBy: 2 };
+          try {
+            const params = sender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+            params.encodings[0].maxBitrate = capBps;
+            params.encodings[0].scaleResolutionDownBy = scaleDownBy;
+            sender.setParameters(params).catch(() => {});
+          } catch (err) {
+            // Not fatal — falls back to the browser's own (uncapped) estimate.
+          }
+        }
+      });
+
+      peerConnections.current.set(remoteUserId, pc);
+      return pc;
+    },
+    [socket, flushOutgoingCandidates]
+  );
+
+  useEffect(() => {
+    createPeerConnectionRef.current = createPeerConnection;
+  }, [createPeerConnection]);
+
+  // Get camera/mic, then announce ourselves to the room
+  useEffect(() => {
+    if (!user || !socket) return; // wait for guest login (or real login) to finish
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Explicit audio constraints (rather than a bare `audio: true`)
+        // for voice quality: echo cancellation, noise suppression, and
+        // auto gain control aren't guaranteed on by default on every
+        // browser/OS combination, and a mono 48kHz capture is what Opus
+        // (the codec WebRTC uses) actually encodes at, so asking for it
+        // directly avoids an extra unnecessary resample.
+        //
+        // Video: 1080p/30fps as the *ideal* capture target. The browser
+        // always falls back gracefully to whatever the camera actually
+        // supports (most laptop webcams and older phones top out at
+        // 720p), so this is safe to ask for even on weaker hardware.
+        // Capture resolution and the per-connection bitrate cap above are
+        // handled separately on purpose: capturing at up to 1080p once
+        // and then letting each peer connection's encoder scale down
+        // (via scaleResolutionDownBy) for larger rooms is cheaper than
+        // re-calling getUserMedia at different resolutions per room size.
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 48000,
+          },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        setLocalStream(stream);
+        localStreamRef.current = stream;
+        socket.emit("join-room", { roomCode, username: user.username });
+      } catch (err) {
+        console.error("getUserMedia failed:", err.name, err.message);
+        setError(
+          "Couldn't access camera/mic. Check browser permissions — and note this requires HTTPS (or localhost) if you're on a phone."
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomCode, user, socket]);
+
+  // Room signaling
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleExistingParticipants = async (list) => {
+      // We're the newcomer — introduce ourselves to everyone already here.
+      // Each participant gets its own try/catch: one bad connection (e.g.
+      // their side just dropped mid-handshake) shouldn't stop us from
+      // still connecting to everyone else in the list — letting one
+      // failure throw out of the loop used to silently strand every
+      // participant after the failed one with no connection at all.
+      for (const { userId, username } of list) {
+        hadConnectedRef.current = true;
+        setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null, connState: "connecting" } }));
+        reconnectAttemptsLeft.current.set(userId, 2);
+        try {
+          const pc = createPeerConnection(userId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit("room-offer", { to: userId, offer });
+          scheduleStaleConnectionCheck(userId);
+        } catch (err) {
+          console.error("Failed to create offer for", userId, err);
+        }
+      }
+    };
+
+    const handleUserJoined = ({ userId, username }) => {
+      // Just for the UI list — we don't initiate; they'll send us an offer
+      hadConnectedRef.current = true;
+      setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null } }));
+    };
+
+    const handleRoomOffer = async ({ from, offer }) => {
+      try {
+        let pc = peerConnections.current.get(from);
+        // A stale connection can still be sitting in the map: either it's
+        // fully closed (this peer disconnected and reconnected, with their
+        // "user-left-room" and this fresh offer arriving close together),
+        // or it's still open but unhealthy (failed/disconnected — the other
+        // side is auto-retrying after a stuck "Connecting…", see
+        // attemptReconnect below, and just sent us a brand-new offer for
+        // the same peer). Reusing either as-is either throws when we try to
+        // set a description on it, or silently tries to renegotiate on top
+        // of a connection that's already broken — so start clean in both
+        // cases instead.
+        const staleState = pc?.connectionState || pc?.iceConnectionState;
+        if (pc && ["closed", "failed", "disconnected"].includes(staleState)) {
+          pc.close();
+          peerConnections.current.delete(from);
+          pendingCandidates.current.delete(from);
+          outgoingCandidates.current.delete(from);
+          clearTimeout(outgoingFlushTimers.current.get(from));
+          outgoingFlushTimers.current.delete(from);
+          pc = null;
+        }
+        if (!pc) pc = createPeerConnection(from);
+        reconnectAttemptsLeft.current.set(from, 2);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPending(from, pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("room-answer", { to: from, answer });
+        scheduleStaleConnectionCheck(from);
+      } catch (err) {
+        console.error("Failed to handle offer from", from, err);
+      }
+    };
+
+    const handleRoomAnswer = async ({ from, answer }) => {
+      try {
+        const pc = peerConnections.current.get(from);
+        if (!pc || pc.signalingState === "closed") return;
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        await flushPending(from, pc);
+      } catch (err) {
+        console.error("Failed to handle answer from", from, err);
+      }
+    };
+
+    const handleIceCandidates = async ({ from, candidates }) => {
+      const pc = peerConnections.current.get(from);
+      for (const candidate of candidates) {
+        if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (err) {
+            console.error("Failed to add ICE candidate", err);
+          }
+        } else {
+          const queue = pendingCandidates.current.get(from) || [];
+          queue.push(candidate);
+          pendingCandidates.current.set(from, queue);
+        }
+      }
+    };
+
+    const handleUserLeft = ({ userId }) => {
+      peerConnections.current.get(userId)?.close();
+      peerConnections.current.delete(userId);
+      pendingCandidates.current.delete(userId);
+      outgoingCandidates.current.delete(userId);
+      clearTimeout(outgoingFlushTimers.current.get(userId));
+      outgoingFlushTimers.current.delete(userId);
+      clearStaleConnectionTimer(userId);
+      reconnectAttemptsLeft.current.delete(userId);
+      setParticipants((prev) => {
+        const next = { ...prev };
+        delete next[userId];
+        // A 1-1 call has exactly one other participant — once they leave,
+        // the call is over for both sides, not just theirs. Previously
+        // this side just fell back into the "alone" branch, which for a
+        // direct call means the ringback tone restarted as if calling them
+        // fresh, leaving this user sitting in an empty call indefinitely.
+        if (isDirectCall && hadConnectedRef.current && Object.keys(next).length === 0) {
+          setCallEnded(true);
+        }
+        return next;
+      });
+    };
+
+    const handleRoomError = ({ message }) => setError(message);
+
+    // These two only matter if this room was entered via a 1-1 call
+    // invite — if the invited friend is offline, not actually a friend
+    // (stale UI), or explicitly declines, the caller is sitting alone in
+    // an empty room and needs to be told rather than left waiting forever.
+    const handleCallError = ({ message }) => setError(message);
+    const handleInviteResponse = ({ accepted }) => {
+      if (!accepted) setError("Call declined.");
+    };
+
+    const handleChatMessage = (msg) => {
+      setChatMessages((prev) => [...prev, msg]);
+      // The server echoes the sender's own message back too (so everyone's
+      // list stays a single source of truth) — don't count or chime for
+      // our own messages, and don't bump the badge while the panel the
+      // person is already looking at is open.
+      if (msg.senderId !== user?.id && !chatOpenRef.current) {
+        setUnreadChatCount((c) => c + 1);
+        playMessageTone();
+      }
+    };
+
+    socket.on("existing-participants", handleExistingParticipants);
+    socket.on("user-joined-room", handleUserJoined);
+    socket.on("room-offer", handleRoomOffer);
+    socket.on("room-answer", handleRoomAnswer);
+    socket.on("room-ice-candidates", handleIceCandidates);
+    socket.on("user-left-room", handleUserLeft);
+    socket.on("room-error", handleRoomError);
+    socket.on("call-error", handleCallError);
+    socket.on("call-invite-response", handleInviteResponse);
+    socket.on("room-chat-message", handleChatMessage);
+
+    return () => {
+      socket.off("existing-participants", handleExistingParticipants);
+      socket.off("user-joined-room", handleUserJoined);
+      socket.off("room-offer", handleRoomOffer);
+      socket.off("room-answer", handleRoomAnswer);
+      socket.off("room-ice-candidates", handleIceCandidates);
+      socket.off("user-left-room", handleUserLeft);
+      socket.off("room-error", handleRoomError);
+      socket.off("call-error", handleCallError);
+      socket.off("call-invite-response", handleInviteResponse);
+      socket.off("room-chat-message", handleChatMessage);
+    };
+  }, [socket, createPeerConnection, scheduleStaleConnectionCheck]);
+
+  // Recover from a dropped connection instead of leaving the call dead.
+  // A brief network blip (phone locks, wifi hiccups, tab backgrounds on
+  // mobile) disconnects the socket; the server immediately tells everyone
+  // else we left and they close their side's peer connection to us. If we
+  // don't re-announce ourselves once we're back, we're stuck: our own
+  // stale peer connections never recover, and no one else's do either —
+  // the call looks "crashed" even though the page never actually errored.
+  // Only reacts to a *reconnect* (disconnect having actually happened
+  // first), never the initial connection — that first join is already
+  // handled by the getUserMedia effect above, and re-running it here too
+  // would double-join and create duplicate peer connections.
+  useEffect(() => {
+    if (!socket || !user) return;
+    let didDisconnect = false;
+
+    const handleDisconnect = () => {
+      didDisconnect = true;
+    };
+
+    const handleReconnect = () => {
+      if (!didDisconnect) return;
+      didDisconnect = false;
+      if (!localStreamRef.current) return; // camera not even acquired yet — nothing to rejoin with
+
+      // Every existing peer connection is now stale (the other side has
+      // already torn theirs down) — close and clear them so the rejoin
+      // below starts every connection completely fresh instead of trying
+      // to reuse dead ones.
+      peerConnections.current.forEach((pc) => pc.close());
+      peerConnections.current.clear();
+      pendingCandidates.current.clear();
+      outgoingCandidates.current.clear();
+      outgoingFlushTimers.current.forEach((t) => clearTimeout(t));
+      outgoingFlushTimers.current.clear();
+      staleConnectionTimers.current.forEach((t) => clearTimeout(t));
+      staleConnectionTimers.current.clear();
+      reconnectAttemptsLeft.current.clear();
+      setParticipants({});
+      socket.emit("join-room", { roomCode, username: user.username });
+    };
+
+    socket.on("disconnect", handleDisconnect);
+    socket.on("connect", handleReconnect);
+    return () => {
+      socket.off("disconnect", handleDisconnect);
+      socket.off("connect", handleReconnect);
+    };
+  }, [socket, roomCode, user]);
+
+  // Cleanup if the user navigates away (back button, closes tab via React unmount)
+  useEffect(() => {
+    return () => {
+      // socketRef, not `socket` — see the comment by its declaration above.
+      // Using the closed-over `socket` here was the bug: this cleanup only
+      // ever runs once, using whatever `socket` was at the component's
+      // first render, so any time that was null the other side never got
+      // told this call ended.
+      socketRef.current?.emit("leave-room");
+      peerConnections.current.forEach((pc) => pc.close());
+      peerConnections.current.clear();
+      pendingCandidates.current.clear();
+      outgoingCandidates.current.clear();
+      outgoingFlushTimers.current.forEach((t) => clearTimeout(t));
+      outgoingFlushTimers.current.clear();
+      staleConnectionTimers.current.forEach((t) => clearTimeout(t));
+      staleConnectionTimers.current.clear();
+      reconnectAttemptsLeft.current.clear();
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The back button (or a phone's back gesture) no longer needs any
+  // special handling here: since this component now stays mounted by
+  // ActiveCallOverlay regardless of route (see App.jsx), a real "back"
+  // navigation away from /room/:roomCode just changes the URL — it
+  // doesn't unmount this component or tear down the call — and
+  // matchesCallRoute above picks that up on its own, shrinking straight
+  // to the minimized bubble. Actually leaving the call is still a
+  // deliberate action via the Leave/hang-up buttons, which call endCall().
+
+  // Closing the tab, refreshing, or navigating away by URL doesn't run our
+  // React cleanup in time to tell the other side — they were left waiting
+  // on a socket-level ping timeout (tens of seconds) to notice the drop,
+  // which is exactly the "hanging up takes forever" symptom. `pagehide`
+  // fires reliably in this situation (unlike `beforeunload`, which mobile
+  // browsers often skip entirely), so send the leave signal there —
+  // best-effort, since the page can still disappear mid-request, but it
+  // turns the common "closed the app/tab" case into an instant hang-up
+  // instead of a 30-60s wait on the other end.
+  useEffect(() => {
+    const onPageHide = () => {
+      socketRef.current?.emit("leave-room");
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
+
+  // Manual retry button on a tile that's shown "Connection issue" — resets
+  // the automatic-retry budget and tries again, same as the automatic path
+  // but triggered on demand regardless of which side is the tie-break
+  // initiator (a person tapping Retry clearly wants a fresh attempt now).
+  const manualRetry = (remoteUserId) => {
+    reconnectAttemptsLeft.current.set(remoteUserId, 2);
+    setParticipants((prev) =>
+      prev[remoteUserId] ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], connState: "reconnecting" } } : prev
+    );
+    reconnectToPeer(remoteUserId);
+  };
+
+  const leaveRoom = () => {
+    sessionStorage.removeItem(`directCall:${roomCode}`);
+    endCall(); // clears the active-call context, which unmounts this component and runs its cleanup
+    navigate(user ? "/chat" : "/");
+  };
+
+  const toggleCamera = () => {
+    const track = localStream?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsCameraOn(track.enabled);
+  };
+
+  const toggleMic = () => {
+    const track = localStream?.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsMicOn(track.enabled);
+  };
+
+  const sendChatMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    socket.emit("room-chat-message", { roomCode, text: chatInput });
+    setChatInput("");
+  };
+
+  // Remembers which physical camera is actually in use — set whenever the
+  // active video track changes. switchCamera needs this to explicitly ask
+  // for a *different* device below; several phones (especially ones with
+  // more than one rear camera) silently ignore a bare facingMode hint and
+  // just hand back the exact same camera, which is why "switch camera"
+  // can look like it does nothing.
+  const currentVideoDeviceIdRef = useRef(null);
+  useEffect(() => {
+    const track = localStream?.getVideoTracks()[0];
+    currentVideoDeviceIdRef.current = track?.getSettings().deviceId || null;
+  }, [localStream]);
+
+  const switchCamera = async () => {
+    if (!localStream) return;
+    const newFacingMode = facingMode === "user" ? "environment" : "user";
+    const oldVideoTrack = localStream.getVideoTracks()[0];
+    // Capture this before stopping the old track — it's the ground truth
+    // for "did we actually get a different physical camera," independent
+    // of whatever facingMode label a new stream claims to have.
+    const previousDeviceId = oldVideoTrack?.getSettings().deviceId || currentVideoDeviceIdRef.current;
+
+    try {
+      // Stop the old camera track BEFORE requesting a new one — many
+      // devices (especially Android) won't allow two simultaneous camera
+      // sessions, so requesting the new stream while the old one is still
+      // active can silently fail or hang.
+      oldVideoTrack?.stop();
+
+      // Give the hardware a moment to actually release — on several
+      // Android devices, requesting getUserMedia again in the same tick
+      // as stop() re-grabs the same camera (or briefly errors) because
+      // the driver hasn't let go yet.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      // The real bug this fixes: `facingMode: { ideal: ... }` is a soft
+      // hint, not a requirement — it NEVER rejects. On a chunk of Android
+      // devices/browsers, `exact` throws OverconstrainedError (camera2 API
+      // quirks, PWA context, etc.), so the code fell through to `ideal`,
+      // which then quietly handed back the SAME physical camera with no
+      // error at all. The old code trusted that as success and flipped
+      // `facingMode` state anyway — which only flips the CSS mirror
+      // transform, not the actual camera. That's exactly the "switching
+      // just reflects/mirrors the image instead of actually switching"
+      // symptom: same camera, now unmirrored (or re-mirrored), so it
+      // *looked* like something happened but the camera never changed.
+      //
+      // Fix: after every attempt, verify the resulting track's deviceId
+      // actually differs from what we started with. If it doesn't, treat
+      // that attempt as a failure and escalate to the next tier instead
+      // of accepting it.
+      const acquire = async (constraints) => {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { ...constraints, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        const track = stream.getVideoTracks()[0];
+        const gotDeviceId = track.getSettings().deviceId || null;
+        if (previousDeviceId && gotDeviceId && gotDeviceId === previousDeviceId) {
+          // Same physical camera came back — not a real switch.
+          stream.getTracks().forEach((t) => t.stop());
+          throw new Error("Got the same camera back");
+        }
+        return stream;
+      };
+
+      let newVideoStream;
+      try {
+        // Tier 1: exact facingMode — reliable on most phones with exactly
+        // one front + one back camera.
+        newVideoStream = await acquire({ facingMode: { exact: newFacingMode } });
+      } catch {
+        try {
+          // Tier 2: soft facingMode hint, but verified via the deviceId
+          // check above rather than trusted blindly.
+          newVideoStream = await acquire({ facingMode: { ideal: newFacingMode } });
+        } catch {
+          // Tier 3: explicit device enumeration, preferring a device whose
+          // label hints at the facing we want, otherwise just excluding
+          // the current deviceId outright. This tier is guaranteed to
+          // produce a different camera (or fail loudly) since it never
+          // relies on the browser honoring a facingMode hint at all.
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter((d) => d.kind === "videoinput");
+          const wantsBack = newFacingMode === "environment";
+          const labelMatch = videoInputs.find((d) => {
+            const label = d.label.toLowerCase();
+            return wantsBack ? label.includes("back") || label.includes("rear") : label.includes("front");
+          });
+          const nextDevice = labelMatch || videoInputs.find((d) => d.deviceId !== previousDeviceId);
+
+          if (!nextDevice) {
+            throw new Error("Only one camera available");
+          }
+
+          newVideoStream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: nextDevice.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          });
+        }
+      }
+      const newVideoTrack = newVideoStream.getVideoTracks()[0];
+      currentVideoDeviceIdRef.current = newVideoTrack.getSettings().deviceId || null;
+
+      // Unlike a 1-1 call there isn't just one connection to update — swap
+      // the outgoing video track on every peer connection in the room at
+      // once, so everyone keeps seeing us without the call dropping.
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+        sender?.replaceTrack(newVideoTrack);
+      });
+
+      const combinedStream = new MediaStream([newVideoTrack, ...localStream.getAudioTracks()]);
+      localStreamRef.current = combinedStream;
+      setLocalStream(combinedStream);
+      setFacingMode(newFacingMode);
+    } catch (err) {
+      console.error("Could not switch camera:", err);
+      // The old track was already stopped above, so on total failure the
+      // user is left with no outgoing video at all unless we try to
+      // reacquire the camera we started from — leaving them silently
+      // camera-less until they leave and rejoin was the old behavior.
+      try {
+        const restoredStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        const restoredTrack = restoredStream.getVideoTracks()[0];
+        currentVideoDeviceIdRef.current = restoredTrack.getSettings().deviceId || null;
+        peerConnections.current.forEach((pc) => {
+          const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+          sender?.replaceTrack(restoredTrack);
+        });
+        localStreamRef.current = new MediaStream([restoredTrack, ...localStream.getAudioTracks()]);
+        setLocalStream(localStreamRef.current);
+        alert("Couldn't switch camera — this device may only have one camera available.");
+      } catch (restoreErr) {
+        console.error("Could not restore camera after failed switch:", restoreErr);
+        alert("Camera switch failed and the camera couldn't be recovered — try toggling your camera off and back on.");
+      }
+    }
+  };
+
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      // Stop sharing — restore the camera track we set aside, on every
+      // peer connection in the room, same pattern as switchCamera.
+      const screenTrack = localStream?.getVideoTracks()[0];
+      screenTrack?.stop();
+
+      const cameraTrack = cameraTrackRef.current;
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+        sender?.replaceTrack(cameraTrack);
+      });
+
+      const restoredStream = new MediaStream([cameraTrack, ...localStream.getAudioTracks()]);
+      localStreamRef.current = restoredStream;
+      setLocalStream(restoredStream);
+      setIsScreenSharing(false);
+      cameraTrackRef.current = null;
+      return;
+    }
+
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+
+      // Remember the current camera track so toggling back off can
+      // restore it exactly, rather than requesting the camera again
+      // (which would need another permission round-trip).
+      cameraTrackRef.current = localStream.getVideoTracks()[0];
+
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+        sender?.replaceTrack(screenTrack);
+      });
+
+      const sharingStream = new MediaStream([screenTrack, ...localStream.getAudioTracks()]);
+      localStreamRef.current = sharingStream;
+      setLocalStream(sharingStream);
+      setIsScreenSharing(true);
+
+      // The browser's own built-in "Stop sharing" bar can end the share
+      // without going through our button at all — listen for that so our
+      // state (and everyone else's view) stays in sync either way.
+      screenTrack.onended = () => {
+        if (cameraTrackRef.current) {
+          const pc2Stream = new MediaStream([cameraTrackRef.current, ...localStreamRef.current.getAudioTracks()]);
+          peerConnections.current.forEach((pc) => {
+            const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+            sender?.replaceTrack(cameraTrackRef.current);
+          });
+          localStreamRef.current = pc2Stream;
+          setLocalStream(pc2Stream);
+          cameraTrackRef.current = null;
+        }
+        setIsScreenSharing(false);
+      };
+    } catch (err) {
+      // User cancelled the "choose a window/screen" picker — not an error
+      // worth alerting about, just a no-op.
+      if (err.name !== "NotAllowedError") {
+        console.error("Screen share failed:", err);
+      }
+    }
+  };
+
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("Room link copied!");
+    } catch (err) {
+      // Clipboard API can silently fail (permissions, insecure context,
+      // unsupported browser) — the old code didn't check this at all and
+      // always claimed success. Fall back to a manual-copy prompt instead.
+      console.error("Clipboard copy failed:", err);
+      window.prompt("Copy this link:", window.location.href);
+    }
+  };
+
+  const otherParticipants = Object.entries(participants); // [userId, {username, stream}][]
+  const participantCount = otherParticipants.length + 1; // +1 for self
+
+  if (!user) {
+    return (
+      <div className="h-dvh flex items-center justify-center bg-callbg text-white p-4">
+        <form
+          onSubmit={handleGuestJoin}
+          className="relative bg-white/5 border border-white/10 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-3 overflow-hidden"
+        >
+          <span className="absolute top-0 left-6 right-6 h-px rule-gold" />
+          <p className="text-xs text-white/55 uppercase tracking-wide">Room</p>
+          <h1 className="font-display text-2xl font-semibold tracking-widest -mt-2">{roomCode}</h1>
+          <p className="text-sm text-white/50">Enter your name to join this video call.</p>
+          <input
+            type="text"
+            placeholder="Your name"
+            value={guestName}
+            onChange={(e) => setGuestName(e.target.value)}
+            maxLength={30}
+            autoFocus
+            className="rounded-lg px-3 py-2.5 text-sm text-callbg bg-white placeholder:text-callbg/40 focus:outline-none focus:ring-2 focus:ring-brand-light mt-1"
+          />
+          {guestError && <p className="text-xs bg-danger/60 rounded px-2 py-1.5">{guestError}</p>}
+          <button
+            type="submit"
+            disabled={guestJoining}
+            className="bg-brand-gradient hover:brightness-110 transition-all font-semibold rounded-lg py-2.5 disabled:opacity-60 shadow-neon-brand"
+          >
+            {guestJoining ? "Joining…" : "Join"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-dvh flex flex-col items-center justify-center bg-callbg text-white gap-4 p-6 text-center">
+        <p className="text-danger">{error}</p>
+        <button
+          onClick={leaveRoom}
+          className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-4 py-2"
+        >
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!localStream) {
+    return (
+      <div className="h-dvh flex items-center justify-center bg-callbg text-white/60">
+        Getting camera ready…
+      </div>
+    );
+  }
+
+  if (isMinimized) {
+    // Prefer showing whoever you're talking to (more useful at a glance
+    // than your own face); fall back to the self view when alone in the
+    // room or if that stream isn't ready yet.
+    const other = otherParticipants[0]?.[1];
+    return (
+      <MinimizedCallBubble
+        stream={other?.stream || localStream}
+        muted={!other}
+        cameraOff={other ? !!other.remoteCameraOff : !isCameraOn}
+        mirrored={!other && facingMode === "user" && !isScreenSharing}
+        name={other?.username || user.username}
+        avatarUrl={other ? undefined : user.avatarUrl}
+        onExpand={() => navigate(`/room/${roomCode}`)}
+        onHangUp={leaveRoom}
+      />
+    );
+  }
+
+  // Self tile, used consistently across the 4/5/6-person grid branches
+  const selfTile = (
+    <VideoTile
+      stream={localStream}
+      label={`${user.username} (You)`}
+      muted
+      cameraOff={!isCameraOn}
+      avatarUrl={user.avatarUrl}
+      mirrored={facingMode === "user" && !isScreenSharing}
+    />
+  );
+
+  return (
+    <div
+      className="h-dvh md:h-screen bg-callbg text-white relative overflow-hidden"
+      onPointerDown={bumpControlsVisible}
+      onPointerMove={bumpControlsVisible}
+    >
+      {/* Video layer — always fills the entire screen; header/controls
+          float on top of it as overlays rather than pushing it into a
+          smaller flex row, matching how WhatsApp/FaceTime call screens work. */}
+      <div className="absolute inset-0">
+        {participantCount === 1 && (
+          // Alone in the room — show self full-screen with a clear invite prompt,
+          // since there's nothing else to show yet.
+          <>
+            <VideoTile
+              stream={localStream}
+              label={isDirectCall ? null : `${user.username} (You)`}
+              muted
+              fullSize
+              cameraOff={!isCameraOn}
+              avatarUrl={user.avatarUrl}
+              avatarName={user.username}
+              mirrored={facingMode === "user" && !isScreenSharing}
+            />
+            <div className="absolute inset-x-0 top-20 md:top-24 flex justify-center px-4">
+              <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
+                {isDirectCall ? (
+                  callEnded ? (
+                    <p className="font-display text-lg md:text-xl font-semibold">
+                      Call ended — {directCallOtherName} disconnected
+                    </p>
+                  ) : (
+                    <p className="font-display text-lg md:text-xl font-semibold">
+                      Calling {directCallOtherName}…
+                    </p>
+                  )
+                ) : (
+                  <>
+                    <p className="text-sm text-white/60">Waiting for others to join…</p>
+                    <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
+                      {roomCode}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {participantCount === 2 && (
+          // Exactly one other person — full-screen for them, a draggable
+          // PiP for self (WhatsApp-style: tap and drag your own bubble
+          // anywhere on screen), same layout as a 1-1 call.
+          <>
+            <VideoTile
+              stream={otherParticipants[0][1].stream}
+              label={otherParticipants[0][1].username}
+              connState={otherParticipants[0][1].connState}
+              cameraOff={otherParticipants[0][1].remoteCameraOff}
+              onRetry={() => manualRetry(otherParticipants[0][0])}
+              fullSize
+            />
+            <DraggableSelfView widthClass={isDirectCall ? "w-24 md:w-32" : "w-28 md:w-40"}>
+              <VideoTile
+                stream={localStream}
+                label={isDirectCall ? null : `${user.username} (You)`}
+                muted
+                cameraOff={!isCameraOn}
+                avatarUrl={user.avatarUrl}
+                avatarName={user.username}
+                mirrored={facingMode === "user" && !isScreenSharing}
+                portrait={isDirectCall}
+              />
+            </DraggableSelfView>
+          </>
+        )}
+
+        {participantCount === 3 && (
+          // Dedicated layout instead of a generic grid: 2 tiles on top,
+          // 1 centered (at half-width, not stretched full-width) below —
+          // stretching the 3rd tile to col-span-2 made it visibly taller
+          // than the tiles above it since aspect-video scales with width.
+          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 flex flex-col gap-2 md:gap-3">
+            <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
+              {selfTile}
+              <VideoTile
+                stream={otherParticipants[0][1].stream}
+                label={otherParticipants[0][1].username}
+                connState={otherParticipants[0][1].connState}
+                cameraOff={otherParticipants[0][1].remoteCameraOff}
+                onRetry={() => manualRetry(otherParticipants[0][0])}
+              />
+            </div>
+            <div className="flex-1 flex justify-center">
+              <div className="w-full md:w-1/2">
+                <VideoTile
+                  stream={otherParticipants[1][1].stream}
+                  label={otherParticipants[1][1].username}
+                  connState={otherParticipants[1][1].connState}
+                  cameraOff={otherParticipants[1][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[1][0])}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {participantCount === 4 && (
+          // Exactly 4 — a clean 2x2, no leftover space
+          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 grid grid-cols-2 grid-rows-2 gap-2 md:gap-3">
+            {selfTile}
+            {otherParticipants.map(([userId, p]) => (
+              <VideoTile
+                key={userId}
+                stream={p.stream}
+                label={p.username}
+                connState={p.connState}
+                cameraOff={p.remoteCameraOff}
+                onRetry={() => manualRetry(userId)}
+              />
+            ))}
+          </div>
+        )}
+
+        {participantCount >= 5 && (
+          // 5-6 people — 2 per row on phones (3 columns would squeeze
+          // tiles too small on a narrow screen), 3 per row on tablet+
+          <div className="h-full overflow-y-auto p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 auto-rows-fr content-center">
+            {selfTile}
+            {otherParticipants.map(([userId, p]) => (
+              <VideoTile
+                key={userId}
+                stream={p.stream}
+                label={p.username}
+                connState={p.connState}
+                cameraOff={p.remoteCameraOff}
+                onRetry={() => manualRetry(userId)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Header — floats over the video, fades out with the rest of the
+          chrome after a few seconds of inactivity */}
+      <div
+        className={`absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/70 via-black/25 to-transparent px-3 md:px-4 pt-3 pb-8 flex items-center justify-between gap-2 transition-opacity duration-300 ${
+          controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+      >
+        <div className="flex items-baseline gap-2 md:gap-3 min-w-0">
+          {isDirectCall ? (
+            <span className="font-display font-semibold truncate">
+              {directCallOtherName || "Call"}
+            </span>
+          ) : (
+            <>
+              <span className="hidden sm:inline text-xs text-white/55 uppercase tracking-wide">
+                Room
+              </span>
+              <span className="font-display font-semibold tracking-widest truncate">
+                {roomCode}
+              </span>
+              <span className="text-xs md:text-sm text-white/60 shrink-0">
+                {participantCount}/{MAX_PARTICIPANTS}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="flex gap-1.5 md:gap-2 shrink-0">
+          {!isDirectCall && (
+            <button
+              onClick={copyInviteLink}
+              title="Copy room link"
+              className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-2.5 md:px-3 py-1.5 flex items-center gap-1.5"
+            >
+              <Link2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+              <span className="hidden sm:inline">Copy Link</span>
+            </button>
+          )}
+          <button
+            onClick={() => navigate(user ? "/chat" : "/")}
+            title="Minimize"
+            className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg p-1.5 md:px-2.5 md:py-1.5 flex items-center gap-1.5"
+          >
+            <Minimize2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+          </button>
+          <button
+            onClick={leaveRoom}
+            className="text-xs md:text-sm bg-danger hover:opacity-90 transition-opacity rounded-lg px-2.5 md:px-3 py-1.5"
+          >
+            Leave
+          </button>
+        </div>
+      </div>
+
+      {chatOpen && (
+        <div className="absolute inset-0 md:inset-y-0 md:right-0 md:left-auto md:w-80 md:max-w-[80vw] bg-callbg/95 md:bg-black/60 md:backdrop-blur-md flex flex-col md:border-l md:border-white/10 z-40">
+          <div className="px-3.5 py-3 border-b border-white/10 font-display font-semibold text-sm flex items-center justify-between">
+            Room Chat
+            <button
+              onClick={() => setChatOpen(false)}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Close chat"
+            >
+              <X className="w-4 h-4" strokeWidth={1.75} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-2">
+            {chatMessages.length === 0 && (
+              <p className="text-xs text-white/55 text-center mt-4">No messages yet</p>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-semibold text-gold">{m.username}: </span>
+                <span className="break-words text-white/90">{m.text}</span>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={sendChatMessage} className="p-2.5 border-t border-white/10 flex gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Message…"
+              className="flex-1 min-w-0 bg-white/10 rounded-full px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-light"
+            />
+            <button
+              type="submit"
+              aria-label="Send"
+              className="w-9 h-9 shrink-0 rounded-full bg-brand-gradient hover:brightness-110 transition-all flex items-center justify-center"
+            >
+              <Send className="w-4 h-4" strokeWidth={2} />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Bottom controls — floats over the video, same fade behavior as the header */}
+      <div
+        className={`absolute bottom-0 inset-x-0 z-30 bg-gradient-to-t from-black/70 via-black/25 to-transparent pt-8 pb-4 md:pb-5 flex items-center justify-center gap-2 md:gap-3 transition-opacity duration-300 ${
+          controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      >
+        <button
+          onClick={toggleMic}
+          title={isMicOn ? "Mute mic" : "Unmute mic"}
+          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
+            isMicOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-callbg"
+          }`}
+        >
+          {isMicOn ? <Mic className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} /> : <MicOff className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />}
+        </button>
+        <button
+          onClick={toggleCamera}
+          title={isCameraOn ? "Turn off camera" : "Turn on camera"}
+          className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
+            isCameraOn ? "bg-white/10 hover:bg-white/20" : "bg-white text-callbg"
+          }`}
+        >
+          {isCameraOn ? <VideoIcon className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} /> : <VideoOff className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />}
+        </button>
+        <button
+          onClick={switchCamera}
+          title="Switch camera"
+          className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 transition-colors flex items-center justify-center"
+        >
+          <RefreshCw className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
+        </button>
+        {screenShareSupported && (
+          <button
+            onClick={toggleScreenShare}
+            title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+            className={`hidden md:flex w-10 h-10 md:w-12 md:h-12 rounded-full items-center justify-center transition-all ${
+              isScreenSharing ? "bg-gold text-callbg shadow-neon" : "bg-white/10 hover:bg-white/20"
+            }`}
+          >
+            <ScreenShare className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
+          </button>
+        )}
+        <button
+          onClick={() => setChatOpen((v) => !v)}
+          title="Toggle chat"
+          className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-colors ${
+            chatOpen ? "bg-brand" : "bg-white/10 hover:bg-white/20"
+          }`}
+        >
+          <MessageCircle className="w-4.5 h-4.5 md:w-5 md:h-5" strokeWidth={1.75} />
+          {unreadChatCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 bg-danger text-white text-[10px] font-semibold min-w-[1.125rem] h-4.5 px-1 rounded-full flex items-center justify-center ring-2 ring-callbg">
+              {unreadChatCount > 9 ? "9+" : unreadChatCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={leaveRoom}
+          title="Leave call"
+          className="w-12 h-10 md:w-14 md:h-12 rounded-full bg-danger hover:opacity-90 transition-opacity flex items-center justify-center text-white"
+        >
+          <PhoneOff className="w-5 h-5 md:w-5.5 md:h-5.5" strokeWidth={1.75} />
+        </button>
+      </div>
+    </div>
+  );
+}
