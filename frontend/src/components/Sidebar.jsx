@@ -181,25 +181,26 @@ export default function Sidebar({
         </span>
       </button>
 
-      <div className="px-4 py-3.5 border-b border-line/10 flex flex-col gap-2 bg-paper/60">
+      <div className="p-3.5 border-b border-line/10 flex flex-col gap-2.5 bg-paper/40">
         <button
           onClick={startGroupCall}
-          className="text-sm bg-brand-gradient hover:brightness-110 transition-all text-white font-semibold rounded-xl py-2.25 inline-flex items-center justify-center gap-2 shadow-neon-brand"
+          className="h-10 text-sm bg-brand-gradient hover:brightness-110 active:scale-[0.99] transition-all text-white font-medium rounded-xl inline-flex items-center justify-center gap-2 shadow-sm"
         >
-          <Video className="w-4 h-4" strokeWidth={1.75} /> New group call
+          <Video className="w-4 h-4" strokeWidth={2} /> New group call
         </button>
-        <form onSubmit={joinGroupCall} className="flex gap-2">
+        <form onSubmit={joinGroupCall} className="flex items-center gap-2">
           <input
             type="text"
             placeholder="Enter room code"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
-            className="flex-1 min-w-0 border border-line/15 rounded-xl px-3 py-1.75 text-sm focus:outline-none focus:ring-2 focus:ring-brand/35 uppercase bg-surface"
+            className="flex-1 h-10 min-w-0 border border-line/15 rounded-xl px-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/35 uppercase placeholder:normal-case placeholder:text-ink/40 bg-surface font-mono font-medium tracking-wider"
             maxLength={6}
           />
           <button
             type="submit"
-            className="text-sm border border-line/15 rounded-xl px-3.5 py-1.75 hover:border-brand/40 hover:bg-surface transition-colors bg-surface font-medium"
+            disabled={!joinCode.trim()}
+            className="h-10 px-4 text-sm font-semibold border border-line/15 rounded-xl hover:border-brand/40 hover:bg-brand/5 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all bg-surface text-ink shrink-0"
           >
             Join
           </button>

@@ -103,11 +103,32 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
   const videoRef = useRef(null);
   const elRef = useRef(null);
   const [pos, setPos] = useState(null);
+  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0, moved: false });
 
+  const attachStream = useCallback(
+    (node) => {
+      videoRef.current = node;
+      if (node && stream) {
+        node.muted = !!muted;
+        if (node.srcObject !== stream) {
+          node.srcObject = stream;
+        }
+        node.play?.().catch(() => {});
+      }
+    },
+    [stream, muted]
+  );
+
   useEffect(() => {
-    if (videoRef.current && stream) videoRef.current.srcObject = stream;
-  }, [stream]);
+    if (videoRef.current && stream) {
+      videoRef.current.muted = !!muted;
+      if (videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+      }
+      videoRef.current.play?.().catch(() => {});
+    }
+  }, [stream, muted]);
 
   useEffect(() => {
     const margin = 16;
@@ -149,12 +170,12 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
     const wasDrag = dragRef.current.moved;
     dragRef.current.active = false;
     elRef.current?.releasePointerCapture(e.pointerId);
-    // A tap (no real movement) restores the full call screen; a drag just
-    // repositions the bubble and shouldn't also expand it.
     if (!wasDrag) onExpand();
   };
 
   if (!pos) return null;
+
+  const showAvatar = !stream || cameraOff || !isVideoLoaded;
 
   return (
     <div
@@ -163,34 +184,27 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       style={{ top: pos.top, left: pos.left }}
-      className="fixed z-50 w-28 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/70 bg-black cursor-grab active:cursor-grabbing touch-none select-none"
+      className="fixed z-50 w-28 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/80 bg-callbg cursor-grab active:cursor-grabbing touch-none select-none"
     >
-      {/* The <video> element stays mounted whenever a stream exists at
-          all, with the placeholder overlaid on top rather than swapped
-          in for it. GroupCall's VideoTile hit this exact bug already
-          (see the comment there): a <video> that unmounts/remounts based
-          on a condition OTHER than `stream` itself (here, `cameraOff`)
-          doesn't get srcObject reassigned on remount, because the
-          binding effect only reruns when the `stream` reference changes
-          — so a freshly-remounted element stays blank/black even though
-          a perfectly good stream is available. Overlaying instead of
-          swapping means the same <video> node persists across cameraOff
-          toggles, so it can never end up unbound. */}
-      {stream && <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={muted}
-        className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""} ${cameraOff ? "invisible" : ""}`}
-      />}
-      {(!stream || cameraOff) && (
-        // Shows whenever there's genuinely no video to display yet (no
-        // one else has joined, or both cameras are off) — the same
-        // recognizable colored-initial avatar as the full call screen,
-        // not a generic app logo, so it still reads as "this is a call
-        // with so-and-so" even minimized down to a small bubble.
-        <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-1 px-2">
-          <ParticipantAvatar name={name} avatarUrl={avatarUrl} size="w-10 h-10" textSize="text-base" />
+      {stream && (
+        <video
+          ref={attachStream}
+          autoPlay
+          playsInline
+          muted={muted}
+          onLoadedData={() => setIsVideoLoaded(true)}
+          onPlaying={() => setIsVideoLoaded(true)}
+          className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""} ${
+            cameraOff || !isVideoLoaded ? "invisible" : ""
+          }`}
+        />
+      )}
+      {showAvatar && (
+        <div className="absolute inset-0 bg-callbg flex flex-col items-center justify-center gap-1.5 px-2">
+          <ParticipantAvatar name={name} avatarUrl={avatarUrl} size="w-11 h-11" textSize="text-lg" />
+          <span className="text-[11px] font-medium text-white/80 truncate max-w-[90px] text-center px-1">
+            {name}
+          </span>
         </div>
       )}
       <button
@@ -200,11 +214,11 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
           onHangUp();
         }}
         title="Hang up"
-        className="absolute bottom-1.5 right-1.5 bg-danger hover:opacity-90 transition-opacity rounded-full p-1.5 shadow-lg"
+        className="absolute bottom-1.5 right-1.5 bg-danger hover:opacity-90 transition-opacity rounded-full p-1.5 shadow-lg z-10"
       >
         <PhoneOff className="w-3.5 h-3.5" strokeWidth={2} />
       </button>
-      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-sm rounded-full p-1">
+      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-sm rounded-full p-1 z-10">
         <Maximize2 className="w-3 h-3 text-white/80" strokeWidth={2} />
       </div>
     </div>
@@ -244,11 +258,29 @@ function ParticipantAvatar({ name, avatarUrl, size = "w-20 h-20", textSize = "te
 function VideoTile({ stream, label, muted, fullSize, fillHeight, cameraOff, mirrored, portrait, connState, onRetry, avatarUrl, avatarName }) {
   const videoRef = useRef(null);
 
+  const attachStream = useCallback(
+    (node) => {
+      videoRef.current = node;
+      if (node && stream) {
+        node.muted = !!muted;
+        if (node.srcObject !== stream) {
+          node.srcObject = stream;
+        }
+        node.play?.().catch(() => {});
+      }
+    },
+    [stream, muted]
+  );
+
   useEffect(() => {
     if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+      videoRef.current.muted = !!muted;
+      if (videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+      }
+      videoRef.current.play?.().catch(() => {});
     }
-  }, [stream]);
+  }, [stream, muted]);
 
   const showFailed = !stream && connState === "failed";
   const statusText = connState === "reconnecting" ? "Reconnecting…" : "Connecting…";
@@ -266,14 +298,8 @@ function VideoTile({ stream, label, muted, fullSize, fillHeight, cameraOff, mirr
       }
     >
       {stream ? (
-        // Always keep the <video> element mounted — toggling camera on/off
-        // only changes whether the placeholder covers it, never unmounts
-        // it. Unmounting and remounting on every toggle was the bug: a
-        // freshly mounted <video> needs srcObject reassigned, but the
-        // effect above only re-runs when `stream` itself changes, not on
-        // every mount, so a toggled-back-on video would stay blank.
         <video
-          ref={videoRef}
+          ref={attachStream}
           autoPlay
           playsInline
           muted={muted}
