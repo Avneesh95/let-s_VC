@@ -126,6 +126,22 @@ router.post("/me/avatar", protect, upload.single("avatar"), async (req, res) => 
   }
 });
 
+// @route  DELETE /api/users/me/avatar
+// @desc   Remove avatar photo and revert to initial
+router.delete("/me/avatar", protect, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $unset: { avatarUrl: 1 } },
+      { new: true }
+    ).select("username email avatarColor avatarUrl");
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 // @route  POST /api/users/me/push-subscription
 // @desc   Register a Web Push subscription for this device, so incoming
 //         calls can still surface a notification when the app is fully

@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { useCallInvite } from "../context/CallInviteContext";
 import { requestNotificationPermission, showNotification } from "../utils/notifications";
-import { playMessageTone } from "../utils/ringtone";
+import { playSendSound, playReceiveSound } from "../utils/soundEffects";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
 
@@ -140,7 +140,7 @@ export default function Chat() {
 
       if (!isSeen && message.sender !== user.id) {
         setUnreadCounts((prev) => ({ ...prev, [message.sender]: (prev[message.sender] || 0) + 1 }));
-        playMessageTone();
+        playReceiveSound();
         if (document.visibilityState !== "visible") {
           const senderUser = users.find((u) => u._id === message.sender);
           const notif = showNotification(`${senderUser?.username || "New message"}`, {
@@ -236,6 +236,7 @@ export default function Chat() {
   const sendMessage = useCallback(
     (text) => {
       if (!socket || !activeUser) return;
+      playSendSound();
       socket.emit("send-message", { receiverId: activeUser._id, text, type: "text" });
     },
     [socket, activeUser]
@@ -244,6 +245,7 @@ export default function Chat() {
   const sendImage = useCallback(
     (mediaUrl) => {
       if (!socket || !activeUser) return;
+      playSendSound();
       socket.emit("send-message", { receiverId: activeUser._id, type: "image", mediaUrl });
     },
     [socket, activeUser]

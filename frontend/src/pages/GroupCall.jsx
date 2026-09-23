@@ -1991,72 +1991,88 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         </div>
       )}
 
-      {/* Floating Bottom Controls Capsule */}
+      {/* Floating Bottom Controls Frosted Glass Capsule */}
       <div
-        className={`absolute bottom-0 inset-x-0 z-30 pointer-events-none pb-4 md:pb-6 flex items-center justify-center transition-opacity duration-300 ${
+        className={`absolute bottom-0 inset-x-0 z-30 pointer-events-none pb-4 md:pb-7 flex items-center justify-center transition-opacity duration-300 ${
           controlsVisible ? "opacity-100" : "opacity-0"
         }`}
         style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
       >
-        <div className="pointer-events-auto bg-black/75 backdrop-blur-2xl border border-white/15 px-3.5 sm:px-5 py-2.5 rounded-full shadow-[0_15px_40px_rgba(0,0,0,0.8)] flex items-center gap-2 sm:gap-3.5">
+        <div className="pointer-events-auto bg-[#0b0e14]/80 dark:bg-[#0b0e14]/85 backdrop-blur-3xl border border-white/20 px-3.5 sm:px-6 py-2 sm:py-2.5 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.85)] ring-1 ring-white/10 flex items-center gap-2 sm:gap-3.5 animate-fade-in-up">
+          {/* Mic Toggle */}
           <button
             onClick={toggleMic}
-            title={isMicOn ? "Mute mic" : "Unmute mic"}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-90 ${
+            title={isMicOn ? "Mute mic (M)" : "Unmute mic (M)"}
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
               isMicOn
-                ? "bg-white/10 hover:bg-white/20 text-white"
-                : "bg-white text-callbg shadow-md"
+                ? "bg-white/10 hover:bg-white/20 text-white shadow-xs"
+                : "bg-danger text-white shadow-lg shadow-danger/30 ring-2 ring-danger/30"
             }`}
           >
             {isMicOn ? <Mic className="w-5 h-5" strokeWidth={1.8} /> : <MicOff className="w-5 h-5" strokeWidth={2} />}
           </button>
+
+          {/* Camera Toggle */}
           <button
             onClick={toggleCamera}
-            title={isCameraOn ? "Turn off camera" : "Turn on camera"}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-90 ${
+            title={isCameraOn ? "Turn off camera (V)" : "Turn on camera (V)"}
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
               isCameraOn
-                ? "bg-white/10 hover:bg-white/20 text-white"
-                : "bg-white text-callbg shadow-md"
+                ? "bg-white/10 hover:bg-white/20 text-white shadow-xs"
+                : "bg-danger text-white shadow-lg shadow-danger/30 ring-2 ring-danger/30"
             }`}
           >
             {isCameraOn ? <VideoIcon className="w-5 h-5" strokeWidth={1.8} /> : <VideoOff className="w-5 h-5" strokeWidth={2} />}
           </button>
+
+          {/* Switch Camera (Mobile) */}
           <button
             onClick={switchCamera}
-            title="Switch camera"
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 transition-all text-white flex items-center justify-center cursor-pointer"
+            title="Switch camera front/back"
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-110 hover:rotate-180 active:scale-95"
           >
             <RefreshCw className="w-4.5 h-4.5" strokeWidth={1.8} />
           </button>
+
+          {/* Screen Share (Desktop) */}
           {screenShareSupported && (
             <button
               onClick={toggleScreenShare}
               title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
-              className={`hidden md:flex w-10 h-10 sm:w-11 sm:h-11 rounded-full items-center justify-center transition-all cursor-pointer active:scale-90 ${
-                isScreenSharing ? "bg-gold text-callbg shadow-neon" : "bg-white/10 hover:bg-white/20 text-white"
+              className={`hidden md:flex w-10 h-10 sm:w-11 sm:h-11 rounded-full items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
+                isScreenSharing
+                  ? "bg-gold text-callbg shadow-neon ring-2 ring-gold/40"
+                  : "bg-white/10 hover:bg-white/20 text-white"
               }`}
             >
               <ScreenShare className="w-4.5 h-4.5" strokeWidth={1.8} />
             </button>
           )}
+
+          {/* In-Call Chat Button */}
           <button
             onClick={() => setChatOpen((v) => !v)}
-            title="Toggle room chat"
-            className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-90 ${
-              chatOpen ? "bg-brand text-white shadow-neon-brand" : "bg-white/10 hover:bg-white/20 text-white"
+            title="Toggle in-room chat"
+            className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
+              chatOpen
+                ? "bg-brand text-white shadow-neon-brand ring-2 ring-brand/40"
+                : "bg-white/10 hover:bg-white/20 text-white"
             }`}
           >
             <MessageCircle className="w-4.5 h-4.5" strokeWidth={1.8} />
             {unreadChatCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-danger text-white text-[10px] font-bold min-w-[1.2rem] h-4.5 px-1 rounded-full flex items-center justify-center ring-2 ring-callbg">
+              <span className="absolute -top-1 -right-1 bg-danger text-white text-[10px] font-bold min-w-[1.2rem] h-4.5 px-1 rounded-full flex items-center justify-center ring-2 ring-callbg animate-bounce">
                 {unreadChatCount > 9 ? "9+" : unreadChatCount}
               </span>
             )}
           </button>
+
+          {/* End Call / Leave Button */}
+          <div className="h-6 w-[1px] bg-white/15 mx-0.5" />
           <button
             onClick={leaveRoom}
-            title="End call"
-            className="w-12 h-10 sm:w-14 sm:h-11 rounded-full bg-danger hover:brightness-110 active:scale-90 transition-all flex items-center justify-center text-white shadow-lg cursor-pointer ml-1"
+            title="Leave / End call"
+            className="w-12 h-10 sm:w-14 sm:h-11 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-95 transition-all duration-200 flex items-center justify-center text-white shadow-xl shadow-red-600/30 ring-2 ring-red-500/20 cursor-pointer hover:scale-105"
           >
             <PhoneOff className="w-5 h-5" strokeWidth={2} />
           </button>
