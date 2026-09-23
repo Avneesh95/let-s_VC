@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Video,
@@ -11,9 +11,11 @@ import {
   MessageCircle,
   Search,
   Hash,
-  Sparkles,
-  ChevronRight
+  Loader2,
+  UserPlus,
+  Clock,
 } from "lucide-react";
+import api from "../api/axios";
 import generateRoomCode from "../utils/generateRoomCode";
 import ThemeToggle from "./ThemeToggle";
 import Avatar from "./Avatar";
@@ -43,7 +45,7 @@ function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectReques
             e.stopPropagation();
             onAcceptRequest(user.requestId);
           }}
-          className="w-7 h-7 flex items-center justify-center bg-brand hover:bg-brand-dark active:scale-95 transition-all text-white rounded-full shadow-sm"
+          className="w-7 h-7 flex items-center justify-center bg-brand hover:bg-brand-dark active:scale-95 transition-all text-white rounded-full shadow-sm cursor-pointer"
           title="Accept request"
         >
           <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
@@ -53,7 +55,7 @@ function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectReques
             e.stopPropagation();
             onRejectRequest(user.requestId);
           }}
-          className="w-7 h-7 flex items-center justify-center bg-danger hover:opacity-90 active:scale-95 transition-all text-white rounded-full shadow-sm"
+          className="w-7 h-7 flex items-center justify-center bg-danger hover:opacity-90 active:scale-95 transition-all text-white rounded-full shadow-sm cursor-pointer"
           title="Decline request"
         >
           <X className="w-3.5 h-3.5" strokeWidth={2.5} />
@@ -67,7 +69,7 @@ function FriendActionButton({ user, onAddFriend, onAcceptRequest, onRejectReques
         e.stopPropagation();
         onAddFriend(user._id);
       }}
-      className="text-xs font-semibold bg-brand hover:bg-brand-dark active:scale-95 transition-all text-white rounded-full px-3 py-1 whitespace-nowrap inline-flex items-center gap-1 shrink-0 shadow-xs"
+      className="text-xs font-semibold bg-brand hover:bg-brand-dark active:scale-95 transition-all text-white rounded-full px-3 py-1 whitespace-nowrap inline-flex items-center gap-1 shrink-0 shadow-xs cursor-pointer"
     >
       <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> Add
     </button>
@@ -167,8 +169,23 @@ export default function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Search people via API (username or email)
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const searchTimeoutRef = useRef(null);
+
   const friends = useMemo(
     () => userList.filter((u) => u.friendStatus === "friends"),
+    [userList]
+  );
+
+  const pendingReceived = useMemo(
+    () => userList.filter((u) => u.friendStatus === "request-received"),
+    [userList]
+  );
+
+  const pendingSent = useMemo(
+    () => userList.filter((u) => u.friendStatus === "request-sent"),
     [userList]
   );
 
@@ -179,16 +196,34 @@ export default function Sidebar({
     );
   }, [friends, searchQuery]);
 
-  const filteredPeople = useMemo(() => {
-    if (!searchQuery.trim()) return userList;
-    return userList.filter((u) =>
-      u.username.toLowerCase().includes(searchQuery.trim().toLowerCase())
-    );
-  }, [userList, searchQuery]);
+  // Debounced search when in "find" tab
+  useEffect(() => {
+    if (tab !== "find") return;
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
 
-  const pendingReceivedCount = userList.filter(
-    (u) => u.friendStatus === "request-received"
-  ).length;
+    setSearching(true);
+    clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get("/users/search", { params: { q: query } });
+        setSearchResults(data || []);
+      } catch (err) {
+        console.error("User search failed:", err);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(searchTimeoutRef.current);
+  }, [searchQuery, tab]);
+
+  const pendingReceivedCount = pendingReceived.length;
   const totalUnreadCount = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
 
   const startGroupCall = () => {
@@ -206,6 +241,14 @@ export default function Sidebar({
     setTab("chats");
   };
 
+  const handleAddFriendFromSearch = async (userId) => {
+    await onAddFriend(userId);
+    // Update status in local search results
+    setSearchResults((prev) =>
+      prev.map((u) => (u._id === userId ? { ...u, friendStatus: "request-sent" } : u))
+    );
+  };
+
   return (
     <aside className="w-full md:w-[320px] lg:w-[340px] bg-surface/90 backdrop-blur-md border-r border-line/15 flex flex-col shrink-0 min-h-0 h-full select-none">
       {/* Header Bar */}
@@ -216,14 +259,14 @@ export default function Sidebar({
           <button
             onClick={() => setSettingsOpen(true)}
             title="Settings"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-ink/50 hover:text-ink hover:bg-ink/5 active:scale-95 transition-all"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-ink/50 hover:text-ink hover:bg-ink/5 active:scale-95 transition-all cursor-pointer"
           >
             <Settings className="w-4 h-4" strokeWidth={1.8} />
           </button>
           <button
             onClick={onLogout}
             title="Log out"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-ink/50 hover:text-danger hover:bg-danger/10 active:scale-95 transition-all"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-ink/50 hover:text-danger hover:bg-danger/10 active:scale-95 transition-all cursor-pointer"
           >
             <LogOut className="w-4 h-4" strokeWidth={1.8} />
           </button>
@@ -266,7 +309,7 @@ export default function Sidebar({
           <button
             type="submit"
             disabled={!joinCode.trim()}
-            className="h-8.5 px-3 text-xs font-bold border border-line/15 rounded-lg hover:border-brand/40 hover:bg-brand/5 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all bg-surface text-ink shrink-0"
+            className="h-8.5 px-3 text-xs font-bold border border-line/15 rounded-lg hover:border-brand/40 hover:bg-brand/5 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all bg-surface text-ink shrink-0 cursor-pointer"
           >
             Join
           </button>
@@ -279,15 +322,15 @@ export default function Sidebar({
           <Search className="w-3.5 h-3.5 text-ink/40 absolute left-3 pointer-events-none" />
           <input
             type="text"
-            placeholder={tab === "chats" ? "Search chats…" : "Find people…"}
+            placeholder={tab === "chats" ? "Search chats…" : "Search username or email…"}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-paper/60 border border-line/15 rounded-lg pl-8 pr-3 py-1.5 text-xs text-ink placeholder:text-ink/40 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all"
+            className="w-full bg-paper/60 border border-line/15 rounded-lg pl-8 pr-8 py-1.5 text-xs text-ink placeholder:text-ink/40 focus:outline-none focus:ring-2 focus:ring-brand/30 transition-all"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-2 text-ink/40 hover:text-ink text-xs"
+              className="absolute right-2 text-ink/40 hover:text-ink text-xs cursor-pointer p-1"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -348,9 +391,9 @@ export default function Sidebar({
             {!searchQuery && (
               <button
                 onClick={() => setTab("find")}
-                className="text-xs text-brand dark:text-brand-light hover:underline font-semibold"
+                className="text-xs text-brand dark:text-brand-light hover:underline font-semibold cursor-pointer"
               >
-                Discover and add friends
+                Search and add friends
               </button>
             )}
           </div>
@@ -369,23 +412,96 @@ export default function Sidebar({
           </ul>
         )
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-2">
-          {filteredPeople.length === 0 ? (
-            <p className="text-xs text-ink/50 text-center mt-6">
-              {searchQuery ? "No matching users found" : "No other users registered yet."}
-            </p>
+        <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar p-3 flex flex-col gap-3">
+          {/* If there's an active search query, show live search results */}
+          {searchQuery.trim() ? (
+            searching ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2 text-ink/45">
+                <Loader2 className="w-6 h-6 animate-spin text-brand" />
+                <span className="text-xs">Searching users…</span>
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 px-4 text-center text-ink/50 gap-1.5">
+                <span className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center text-ink/30 mb-1">
+                  <UserPlus className="w-5 h-5" />
+                </span>
+                <p className="text-xs font-bold text-ink">No users found</p>
+                <p className="text-[11px] text-ink/45">
+                  No registered user matching &ldquo;{searchQuery}&rdquo; was found.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] font-bold text-ink/50 uppercase tracking-wider px-1">
+                  Search Results ({searchResults.length})
+                </p>
+                {searchResults.map((u) => (
+                  <PersonCard
+                    key={u._id}
+                    u={u}
+                    isOnline={onlineUsers.includes(u._id)}
+                    onOpenChat={openChatFromCard}
+                    onAddFriend={handleAddFriendFromSearch}
+                    onAcceptRequest={onAcceptRequest}
+                    onRejectRequest={onRejectRequest}
+                  />
+                ))}
+              </div>
+            )
           ) : (
-            filteredPeople.map((u) => (
-              <PersonCard
-                key={u._id}
-                u={u}
-                isOnline={onlineUsers.includes(u._id)}
-                onOpenChat={openChatFromCard}
-                onAddFriend={onAddFriend}
-                onAcceptRequest={onAcceptRequest}
-                onRejectRequest={onRejectRequest}
-              />
-            ))
+            /* No search query: Hide all random people; only show Pending Requests & clean search prompt */
+            <div className="flex flex-col gap-3">
+              {/* Incoming Pending Requests */}
+              {pendingReceived.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] font-bold text-brand uppercase tracking-wider px-1 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Friend Requests ({pendingReceived.length})
+                  </p>
+                  {pendingReceived.map((u) => (
+                    <PersonCard
+                      key={u._id}
+                      u={u}
+                      isOnline={onlineUsers.includes(u._id)}
+                      onOpenChat={openChatFromCard}
+                      onAddFriend={onAddFriend}
+                      onAcceptRequest={onAcceptRequest}
+                      onRejectRequest={onRejectRequest}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Outgoing Pending Requests */}
+              {pendingSent.length > 0 && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <p className="text-[11px] font-bold text-ink/45 uppercase tracking-wider px-1">
+                    Sent Requests ({pendingSent.length})
+                  </p>
+                  {pendingSent.map((u) => (
+                    <PersonCard
+                      key={u._id}
+                      u={u}
+                      isOnline={onlineUsers.includes(u._id)}
+                      onOpenChat={openChatFromCard}
+                      onAddFriend={onAddFriend}
+                      onAcceptRequest={onAcceptRequest}
+                      onRejectRequest={onRejectRequest}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Clean Search Prompt */}
+              <div className="flex flex-col items-center justify-center text-center px-4 py-8 gap-2 text-ink/50 select-none">
+                <span className="w-12 h-12 rounded-2xl bg-brand/10 text-brand flex items-center justify-center mb-1 shadow-xs">
+                  <Search className="w-6 h-6" />
+                </span>
+                <p className="text-xs font-bold text-ink">Find People</p>
+                <p className="text-[11px] text-ink/45 max-w-[210px] leading-relaxed">
+                  Enter a friend&apos;s username or email address in the search box above to find and add them.
+                </p>
+              </div>
+            </div>
           )}
         </div>
       )}

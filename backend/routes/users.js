@@ -11,21 +11,24 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 const router = express.Router();
 
 // @route  GET /api/users
-// @desc   Get every user except the logged-in one (the "contact list"),
-//         annotated with the current user's relationship to each one.
+// @desc   Get contacts (friends and pending request users)
 router.get("/", protect, async (req, res) => {
   try {
-    const [me, users, pendingRequests] = await Promise.all([
+    const [me, pendingRequests] = await Promise.all([
       User.findById(req.userId).select("friends"),
-      // Deliberately excludes email — the frontend never displays another
-      // user's email (only their own, on the settings screen via a
-      // separate authenticated call), and this endpoint is reachable by
-      // any holder of a valid token, including guest tokens. Returning
-      // every registered user's email address here would be an unrelated-
-      // to-the-feature privacy leak.
-      User.find({ _id: { $ne: req.userId } }).select("username avatarColor avatarUrl"),
       FriendRequest.find({ $or: [{ sender: req.userId }, { receiver: req.userId }] }),
     ]);
+
+    const relevantUserIds = new Set([
+      ...me.friends.map((id) => id.toString()),
+      ...pendingRequests.map((r) => r.sender.toString()),
+      ...pendingRequests.map((r) => r.receiver.toString()),
+    ]);
+    relevantUserIds.delete(req.userId);
+
+    const users = await User.find({ _id: { $in: Array.from(relevantUserIds) } }).select(
+      "username avatarColor avatarUrl"
+    );
 
     const result = users.map((u) => {
       const uid = u._id.toString();
@@ -47,6 +50,70 @@ router.get("/", protect, async (req, res) => {
       }
 
       return { ...u.toObject(), friendStatus: "none" };
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// @route  GET /api/users/search
+// @desc   Search users by username or email
+router.get("/search", protect, async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    if (!q) {
+      return res.json([]);
+    }
+
+    const [me, users, pendingRequests] = await Promise.all([
+      User.findById(req.userId).select("friends"),
+      User.find({
+        _id: { $ne: req.userId },
+        $or: [
+          { username: { $regex: q, $options: "i" } },
+          { email: { $regex: q, $options: "i" } },
+        ],
+      })
+        .select("username avatarColor avatarUrl")
+        .limit(25),
+      FriendRequest.find({ $or: [{ sender: req.userId }, { receiver: req.userId }] }),
+    ]);
+
+    const result = users.map((u) => {
+      const uid = u._id.toString();
+      let friendStatus = "none";
+      let requestId = undefined;
+
+      if (me.friends.some((id) => id.toString() === uid)) {
+        friendStatus = "friends";
+      } else {
+        const sent = pendingRequests.find(
+          (r) => r.sender.toString() === req.userId && r.receiver.toString() === uid
+        );
+        if (sent) {
+          friendStatus = "request-sent";
+          requestId = sent._id;
+        } else {
+          const received = pendingRequests.find(
+            (r) => r.receiver.toString() === req.userId && r.sender.toString() === uid
+          );
+          if (received) {
+            friendStatus = "request-received";
+            requestId = received._id;
+          }
+        }
+      }
+
+      return {
+        _id: u._id,
+        username: u.username,
+        avatarColor: u.avatarColor,
+        avatarUrl: u.avatarUrl,
+        friendStatus,
+        requestId,
+      };
     });
 
     res.json(result);
