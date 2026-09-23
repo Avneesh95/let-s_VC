@@ -234,7 +234,7 @@ export default function Register() {
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-[#E53935] hover:bg-[#D32F2F] hover:shadow-lg disabled:opacity-60 text-white font-bold uppercase tracking-wider text-xs rounded-full py-3.5 px-12 transition-all active:scale-95 shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                className="bg-brand-gradient hover:brightness-110 shadow-neon-brand disabled:opacity-60 text-white font-bold uppercase tracking-wider text-xs rounded-full py-3.5 px-12 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "SIGN UP"}
               </button>

@@ -4,26 +4,149 @@
 
 @layer base {
   :root {
-    --color-paper: 250 248 244;
-    --color-ink: 22 25 22;
+    --color-paper: 248 249 251;
+    --color-ink: 17 24 39;
     --color-surface: 255 255 255;
-    --color-line: 0 0 0;
-    --color-chatbg: 244 241 234;
-    --color-bubble-own: 250 227 204;
+    --color-line: 226 232 240;
+    --color-chatbg: 241 245 249;
+    --color-bubble-own: 254 237 222;
   }
 
   .dark {
-    --color-paper: 10 9 9;
-    --color-ink: 238 234 228;
-    --color-surface: 21 18 17;
-    --color-line: 255 255 255;
-    --color-chatbg: 13 11 11;
-    --color-bubble-own: 46 27 13;
+    --color-paper: 12 15 20;
+    --color-ink: 241 245 249;
+    --color-surface: 18 22 30;
+    --color-line: 39 45 58;
+    --color-chatbg: 10 13 18;
+    --color-bubble-own: 45 26 12;
+  }
+
+  * {
+    border-color: rgb(var(--color-line) / 0.7);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    font-family: Inter, system-ui, sans-serif;
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: rgb(var(--color-ink));
     background-color: rgb(var(--color-paper));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
   }
+}
+
+/* Custom scrollbars */
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.4) transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.35);
+  border-radius: 9999px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.6);
+}
+
+.dark .thin-scrollbar {
+  scrollbar-color: rgba(75, 85, 99, 0.45) transparent;
+}
+
+.dark .thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(75, 85, 99, 0.45);
+}
+
+.dark .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(107, 114, 128, 0.7);
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes bounceDot {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.22s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: bounceDot 1.4s infinite ease-in-out both;
+}
+
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+.typing-dot:nth-child(3) { animation-delay: 0s; }
+
+/* Text Break and Message Overflow Safety */
+.break-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }

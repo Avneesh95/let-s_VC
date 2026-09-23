@@ -1,14 +1,8 @@
-import { useState } from "react";
-import { Smile, Download, X, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Smile, Download, X, Loader2, ZoomIn, CheckCheck } from "lucide-react";
 
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "🎉"];
 
-// Forces an actual save-to-device instead of just opening the image, which
-// is what a plain `<a href download>` silently degrades to for a
-// cross-origin URL (images here are served from Cloudinary, not the app's
-// own origin — browsers ignore the `download` attribute across origins).
-// Fetching the bytes ourselves and handing the browser a same-origin blob
-// URL works everywhere, including "Save to Photos" on mobile browsers.
 async function downloadImage(url) {
   try {
     const res = await fetch(url, { mode: "cors" });
@@ -22,18 +16,20 @@ async function downloadImage(url) {
     a.remove();
     URL.revokeObjectURL(blobUrl);
   } catch {
-    // CORS or network hiccup — falling back to a plain new-tab open still
-    // lets the person long-press/right-click to save it manually rather
-    // than getting no feedback at all.
     window.open(url, "_blank", "noopener");
   }
 }
 
-// Full-screen viewer opened by tapping an image thumbnail — WhatsApp-style:
-// tap to open large, explicit download action in the header, tap the
-// backdrop or the X to close.
 function ImageLightbox({ url, onClose }) {
   const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -43,35 +39,40 @@ function ImageLightbox({ url, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/92 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fade-in-up select-none"
       onClick={onClose}
     >
-      <div className="absolute top-0 inset-x-0 flex items-center justify-end gap-2 p-4">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDownload();
-          }}
-          disabled={downloading}
-          title="Save image"
-          className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-60 flex items-center justify-center text-white transition-colors"
-        >
-          {downloading ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Download className="w-4.5 h-4.5" strokeWidth={1.75} />}
-        </button>
-        <button
-          onClick={onClose}
-          title="Close"
-          className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
-        >
-          <X className="w-5 h-5" strokeWidth={1.75} />
-        </button>
+      <div className="absolute top-0 inset-x-0 flex items-center justify-between p-4 sm:p-6 bg-gradient-to-b from-black/60 to-transparent z-10">
+        <span className="text-xs sm:text-sm font-medium text-white/70">Image Preview</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDownload();
+            }}
+            disabled={downloading}
+            title="Download image"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 disabled:opacity-60 flex items-center justify-center text-white transition-all shadow-md"
+          >
+            {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" strokeWidth={2} />}
+          </button>
+          <button
+            onClick={onClose}
+            title="Close preview (Esc)"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-white transition-all shadow-md"
+          >
+            <X className="w-4.5 h-4.5" strokeWidth={2} />
+          </button>
+        </div>
       </div>
-      <img
-        src={url}
-        alt="shared"
-        onClick={(e) => e.stopPropagation()}
-        className="max-w-full max-h-full object-contain rounded-sm select-none"
-      />
+      <div className="relative max-w-full max-h-[88vh] flex items-center justify-center">
+        <img
+          src={url}
+          alt="Shared content preview"
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-full max-h-[82vh] object-contain rounded-xl shadow-2xl ring-1 ring-white/10"
+        />
+      </div>
     </div>
   );
 }
@@ -79,19 +80,14 @@ function ImageLightbox({ url, onClose }) {
 export default function MessageBubble({ message, isOwn, onReact, currentUserId }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Guard against a missing/unparsable createdAt (e.g. a locally-built
-  // message that hasn't round-tripped through the server yet) — without
-  // this, toLocaleTimeString on an Invalid Date silently renders the
-  // literal text "Invalid Date" in the bubble instead of a time.
   const parsedDate = new Date(message.createdAt);
   const time = Number.isNaN(parsedDate.getTime())
     ? ""
     : parsedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   const reactions = message.reactions || [];
-  // Group by emoji so multiple people reacting the same way show as one
-  // pill with a count, rather than duplicate pills.
   const grouped = reactions.reduce((acc, r) => {
     acc[r.emoji] = acc[r.emoji] || [];
     acc[r.emoji].push(r.user);
@@ -107,95 +103,119 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
   const hasReactions = Object.keys(grouped).length > 0;
 
   return (
-    // Reaction pills hang below the bubble via absolute positioning
-    // (see "-bottom-3" below) — the default mb-4 gap isn't tall enough to
-    // clear them, so they were visually overlapping the top of the next
-    // message bubble. Widening the gap only when reactions are actually
-    // present keeps normal messages tight.
-    <div className={`flex ${hasReactions ? "mb-7" : "mb-4"} ${isOwn ? "justify-end" : "justify-start"} group relative`}>
-      {/* min-w-0 on every level of this flex chain: a flex item's default
-          min-width is "auto" (its content's natural size), not 0 — without
-          overriding that, a wide image's intrinsic size could push this
-          row wider than its max-w cap instead of being constrained by it,
-          which is what was causing chat images to overflow the bubble. */}
-      <div className={`flex items-end gap-1 min-w-0 max-w-full ${isOwn ? "flex-row-reverse" : ""}`}>
+    <div
+      className={`flex ${hasReactions ? "mb-6.5" : "mb-3"} ${
+        isOwn ? "justify-end" : "justify-start"
+      } group relative animate-fade-in-up w-full`}
+    >
+      <div
+        className={`flex items-end gap-1.5 max-w-[85%] sm:max-w-[75%] md:max-w-[65%] min-w-0 ${
+          isOwn ? "flex-row-reverse" : "flex-row"
+        }`}
+      >
+        {/* Main Bubble Container */}
         <div
-          className={`min-w-0 max-w-[78%] md:max-w-[60%] rounded-2xl px-3.5 py-2.5 relative shadow-sm ${
+          className={`relative min-w-[75px] max-w-full rounded-2xl px-3.5 py-2.5 shadow-sm transition-shadow ${
             isOwn
-              ? "bg-bubbleOwn rounded-br-md ring-1 ring-brand/10"
-              : "bg-surface rounded-bl-md ring-1 ring-line/5"
-          } ${message.type === "image" ? "!p-1" : ""}`}
+              ? "bg-gradient-to-br from-[#F4600F]/15 via-[#F4600F]/10 to-[#FFA733]/15 dark:from-[#F4600F]/25 dark:to-[#FFA733]/15 text-ink rounded-br-xs border border-brand/20 shadow-orange-500/5"
+              : "bg-surface text-ink rounded-bl-xs border border-line/15 shadow-black/[0.03]"
+          } ${message.type === "image" ? "!p-1.5 !pb-1" : ""}`}
         >
           {message.type === "image" ? (
-            <button
-              type="button"
-              onClick={() => setLightboxOpen(true)}
-              className="block max-w-full"
-              title="Tap to view"
-            >
-              <img
-                src={message.mediaUrl}
-                alt="shared"
-                loading="lazy"
-                className="max-w-[260px] sm:max-w-[300px] max-h-[320px] w-auto h-auto rounded-lg block"
-              />
-            </button>
+            <div className="relative group/img overflow-hidden rounded-xl bg-black/5 dark:bg-white/5">
+              {!imageLoaded && (
+                <div className="w-[240px] h-[180px] sm:w-[280px] sm:h-[200px] flex items-center justify-center bg-ink/5 animate-pulse text-ink/30">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                className="block relative max-w-full cursor-pointer focus:outline-none"
+                title="Click to expand"
+              >
+                <img
+                  src={message.mediaUrl}
+                  alt="Shared media"
+                  loading="lazy"
+                  onLoad={() => setImageLoaded(true)}
+                  className={`max-w-[240px] sm:max-w-[300px] max-h-[320px] w-auto h-auto rounded-xl object-cover transition-transform duration-300 group-hover/img:scale-[1.01] ${
+                    !imageLoaded ? "hidden" : "block"
+                  }`}
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 transition-colors rounded-xl flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                  <span className="w-9 h-9 rounded-full bg-black/60 text-white flex items-center justify-center shadow-lg backdrop-blur-sm">
+                    <ZoomIn className="w-4.5 h-4.5" />
+                  </span>
+                </div>
+              </button>
+            </div>
           ) : (
-            // whitespace-pre-wrap does two things at once: it makes a
-            // real line break (Shift+Enter in the compose box — see
-            // MessageInput.jsx) actually render as one, instead of the
-            // browser's default `white-space: normal` silently collapsing
-            // every newline into a single space so a multi-line message
-            // came out squashed onto one line. break-words then covers the
-            // other direction — one long unbroken token (a URL, "aaaaaa…")
-            // wraps inside the bubble instead of overflowing it. Same pair
-            // WhatsApp Web itself uses for message text.
-            <p className="text-sm whitespace-pre-wrap break-words text-ink">{message.text}</p>
+            <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words break-all break-anywhere select-text font-normal">
+              {message.text}
+            </p>
           )}
-          <span className={`block text-[10px] text-ink/45 text-right mt-0.5 ${message.type === "image" ? "px-1.5 pb-0.5" : ""}`}>
-            {time}
-          </span>
 
-          {Object.keys(grouped).length > 0 && (
-            <div className={`absolute -bottom-3 ${isOwn ? "right-2" : "left-2"} flex gap-1`}>
+          {/* Time & Read Checkmark */}
+          <div
+            className={`flex items-center justify-end gap-1 mt-0.5 select-none ${
+              message.type === "image" ? "px-1.5 pt-1 pb-0.5" : ""
+            }`}
+          >
+            <span className="text-[10px] text-ink/45 font-medium tracking-tight">
+              {time}
+            </span>
+            {isOwn && (
+              <CheckCheck className="w-3 h-3 text-brand dark:text-brand-light opacity-80" />
+            )}
+          </div>
+
+          {/* Reaction badges */}
+          {hasReactions && (
+            <div
+              className={`absolute -bottom-3.5 ${
+                isOwn ? "right-2" : "left-2"
+              } flex flex-wrap gap-1 z-10`}
+            >
               {Object.entries(grouped).map(([emoji, users]) => (
                 <button
                   key={emoji}
                   onClick={() => handlePick(emoji)}
-                  className={`text-xs rounded-full px-1.5 py-0.5 border shadow-sm ${
+                  className={`text-[11px] font-medium rounded-full px-2 py-0.5 border shadow-sm flex items-center gap-1 transition-transform active:scale-95 ${
                     myReaction === emoji
-                      ? "bg-brand/10 border-brand"
-                      : "bg-surface border-line/15"
+                      ? "bg-brand/15 border-brand text-brand dark:text-brand-light ring-1 ring-brand/30"
+                      : "bg-surface border-line/20 text-ink/80 hover:bg-paper"
                   }`}
                 >
-                  {emoji} {users.length > 1 && users.length}
+                  <span>{emoji}</span>
+                  {users.length > 1 && <span className="text-[10px]">{users.length}</span>}
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* React button — appears on hover (desktop) so it doesn't clutter
-            every message by default */}
-        <div className="relative shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Reaction trigger icon (Desktop hover + Mobile touch friendly) */}
+        <div className="relative shrink-0 opacity-0 group-hover:opacity-100 transition-opacity focus-within:opacity-100">
           <button
             onClick={() => setPickerOpen((v) => !v)}
-            className="w-6 h-6 rounded-full hover:bg-ink/5 flex items-center justify-center text-ink/40"
-            title="React"
+            className="w-7 h-7 rounded-full hover:bg-ink/5 active:scale-90 flex items-center justify-center text-ink/40 hover:text-ink/80 transition-all cursor-pointer"
+            title="Add reaction"
           >
-            <Smile className="w-3.5 h-3.5" strokeWidth={1.75} />
+            <Smile className="w-4 h-4" strokeWidth={1.75} />
           </button>
           {pickerOpen && (
             <div
-              className={`absolute z-10 bottom-7 ${
+              className={`absolute z-30 bottom-8 ${
                 isOwn ? "right-0" : "left-0"
-              } bg-surface border border-line/10 rounded-full shadow-premium px-2 py-1 flex gap-1`}
+              } bg-surface/95 backdrop-blur-md border border-line/15 rounded-full shadow-premium-lg px-2.5 py-1.5 flex items-center gap-1 animate-scale-in`}
             >
               {REACTION_EMOJIS.map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => handlePick(emoji)}
-                  className="text-base hover:scale-125 transition-transform"
+                  className="text-lg hover:scale-130 active:scale-95 transition-transform p-0.5 cursor-pointer"
+                  title={`React ${emoji}`}
                 >
                   {emoji}
                 </button>

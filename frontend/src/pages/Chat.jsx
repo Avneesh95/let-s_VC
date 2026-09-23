@@ -257,7 +257,7 @@ export default function Chat() {
   };
 
   return (
-    <div className="flex h-dvh md:h-screen">
+    <div className="flex w-full h-dvh max-h-dvh overflow-hidden bg-paper text-ink">
       {/* min-h-0 on both panes: a flex item's default min-height is "auto",
           not 0, which means it refuses to shrink below its own content's
           natural height even though it's inside a height-constrained flex
