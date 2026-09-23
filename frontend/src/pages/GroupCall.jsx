@@ -255,7 +255,21 @@ function ParticipantAvatar({ name, avatarUrl, size = "w-20 h-20", textSize = "te
   );
 }
 
-function VideoTile({ stream, label, muted, fullSize, fillHeight, cameraOff, mirrored, portrait, connState, onRetry, avatarUrl, avatarName }) {
+function VideoTile({
+  stream,
+  label,
+  muted,
+  fullSize,
+  fillHeight,
+  cameraOff,
+  mirrored,
+  portrait,
+  connState,
+  onRetry,
+  avatarUrl,
+  avatarName,
+  className = "",
+}) {
   const videoRef = useRef(null);
 
   const attachStream = useCallback(
@@ -287,15 +301,15 @@ function VideoTile({ stream, label, muted, fullSize, fillHeight, cameraOff, mirr
 
   return (
     <div
-      className={
+      className={`relative bg-[#0d1017] rounded-2xl overflow-hidden flex items-center justify-center ring-1 ring-white/15 shadow-xl ${
         fullSize
-          ? "relative w-full h-full bg-black overflow-hidden flex items-center justify-center"
+          ? "w-full h-full"
           : fillHeight
-          ? "relative w-full h-full bg-black rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-white/10"
-          : `relative bg-black rounded-xl overflow-hidden ${
-              portrait ? "aspect-[3/5]" : "aspect-video"
-            } flex items-center justify-center ring-1 ring-white/10`
-      }
+          ? "w-full h-full min-h-0"
+          : portrait
+          ? "aspect-[3/5] w-full"
+          : "aspect-video w-full"
+      } ${className}`}
     >
       {stream ? (
         <video
@@ -308,15 +322,12 @@ function VideoTile({ stream, label, muted, fullSize, fillHeight, cameraOff, mirr
           }`}
         />
       ) : showFailed ? (
-        // Stuck for too long even after an automatic retry (almost always
-        // a congested TURN relay — see iceServers.js) — give the person
-        // something to do instead of an indefinite spinner.
         <div className="flex flex-col items-center gap-2 px-3 text-center">
-          <span className="text-white/70 text-sm">Connection issue</span>
+          <span className="text-white/70 text-xs sm:text-sm font-medium">Connection issue</span>
           {onRetry && (
             <button
               onClick={onRetry}
-              className="text-xs bg-white/15 hover:bg-white/25 transition-colors rounded-full px-3 py-1.5 flex items-center gap-1.5"
+              className="text-xs bg-white/15 hover:bg-white/25 active:scale-95 transition-all rounded-full px-3.5 py-1.5 flex items-center gap-1.5 cursor-pointer text-white font-semibold"
             >
               <RefreshCw className="w-3 h-3" strokeWidth={2} />
               Retry
@@ -324,16 +335,26 @@ function VideoTile({ stream, label, muted, fullSize, fillHeight, cameraOff, mirr
           )}
         </div>
       ) : (
-        <span className="text-white/60 text-sm">{statusText}</span>
+        <div className="flex items-center gap-2 text-white/60 text-xs sm:text-sm font-medium animate-pulse">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>{statusText}</span>
+        </div>
       )}
       {cameraOff && (
-        <div className="absolute inset-0 bg-callbg flex items-center justify-center">
-          <ParticipantAvatar name={avatarName || label} avatarUrl={avatarUrl} />
+        <div className="absolute inset-0 bg-[#0d1017] flex flex-col items-center justify-center gap-2.5 p-3 select-none">
+          <ParticipantAvatar
+            name={avatarName || label}
+            avatarUrl={avatarUrl}
+            size="w-16 h-16 sm:w-20 sm:h-20"
+            textSize="text-2xl sm:text-3xl"
+          />
+          <span className="text-xs text-white/50 font-medium">Camera off</span>
         </div>
       )}
       {label && (
-        <span className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-0.5 rounded-md">
-          {label}
+        <span className="absolute bottom-2.5 left-2.5 bg-black/65 backdrop-blur-md text-white text-[11px] sm:text-xs font-semibold px-2.5 py-1 rounded-lg ring-1 ring-white/10 flex items-center gap-1.5 max-w-[80%] truncate select-none shadow-md z-10">
+          <span className="truncate">{label}</span>
+          {muted && <MicOff className="w-3 h-3 text-danger shrink-0" />}
         </span>
       )}
     </div>
@@ -1527,77 +1548,103 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           smaller flex row, matching how WhatsApp/FaceTime call screens work. */}
       <div className="absolute inset-0">
         {participantCount === 1 && (
-          // Alone in the room — show self full-screen with a clear invite prompt,
-          // since there's nothing else to show yet.
-          <>
-            <VideoTile
-              stream={localStream}
-              label={isDirectCall ? null : `${user.username} (You)`}
-              muted
-              fullSize
-              cameraOff={!isCameraOn}
-              avatarUrl={user.avatarUrl}
-              avatarName={user.username}
-              mirrored={facingMode === "user" && !isScreenSharing}
-            />
-            <div className="absolute inset-x-0 top-20 md:top-24 flex justify-center px-4">
-              <div className="bg-black/60 backdrop-blur-sm rounded-2xl px-4 md:px-6 py-3 md:py-4 text-center max-w-full">
-                {isDirectCall ? (
-                  callEnded ? (
-                    <p className="font-display text-lg md:text-xl font-semibold">
-                      Call ended — {directCallOtherName} disconnected
-                    </p>
-                  ) : (
-                    <p className="font-display text-lg md:text-xl font-semibold">
-                      Calling {directCallOtherName}…
-                    </p>
-                  )
-                ) : (
-                  <>
-                    <p className="text-sm text-white/60">Waiting for others to join…</p>
-                    <p className="font-display text-xl md:text-2xl font-semibold tracking-[0.15em] md:tracking-[0.2em] mt-1">
-                      {roomCode}
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {participantCount === 2 && (
-          // Exactly one other person — full-screen for them, a draggable
-          // PiP for self (WhatsApp-style: tap and drag your own bubble
-          // anywhere on screen), same layout as a 1-1 call.
-          <>
-            <VideoTile
-              stream={otherParticipants[0][1].stream}
-              label={otherParticipants[0][1].username}
-              connState={otherParticipants[0][1].connState}
-              cameraOff={otherParticipants[0][1].remoteCameraOff}
-              onRetry={() => manualRetry(otherParticipants[0][0])}
-              fullSize
-            />
-            <DraggableSelfView widthClass={isDirectCall ? "w-24 md:w-32" : "w-28 md:w-40"}>
+          // Alone in the room — centered view with max-w container on laptop
+          <div className="h-full w-full flex items-center justify-center p-2 sm:p-4 md:p-6 pt-18 md:pt-22 pb-22 md:pb-26">
+            <div className="w-full h-full max-w-5xl max-h-[85vh] relative rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/10">
               <VideoTile
                 stream={localStream}
                 label={isDirectCall ? null : `${user.username} (You)`}
                 muted
+                fillHeight
                 cameraOff={!isCameraOn}
                 avatarUrl={user.avatarUrl}
                 avatarName={user.username}
                 mirrored={facingMode === "user" && !isScreenSharing}
-                portrait={isDirectCall}
               />
-            </DraggableSelfView>
-          </>
+              <div className="absolute inset-x-0 top-6 flex justify-center px-4">
+                <div className="bg-black/75 backdrop-blur-md rounded-2xl px-5 py-3.5 text-center max-w-md ring-1 ring-white/15 shadow-xl">
+                  {isDirectCall ? (
+                    callEnded ? (
+                      <p className="font-display text-base sm:text-lg font-bold text-white">
+                        Call ended — {directCallOtherName} disconnected
+                      </p>
+                    ) : (
+                      <p className="font-display text-base sm:text-lg font-bold text-white flex items-center justify-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-brand animate-ping" /> Calling {directCallOtherName}…
+                      </p>
+                    )
+                  ) : (
+                    <>
+                      <p className="text-xs text-white/60 font-medium">Waiting for others to join…</p>
+                      <p className="font-display text-lg sm:text-xl font-bold tracking-widest text-gold mt-0.5 font-mono">
+                        {roomCode}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
+        {participantCount === 2 && (
+          // 2 people: Side-by-side on laptop/desktop, Full-Screen + PiP on mobile
+          <div className="h-full w-full">
+            {/* Desktop / Laptop (md+) 2-column grid */}
+            <div className="hidden md:flex h-full w-full items-center justify-center p-4 md:p-6 pt-20 md:pt-22 pb-24 md:pb-26">
+              <div className="grid grid-cols-2 gap-4 w-full h-full max-w-6xl max-h-[82vh]">
+                <VideoTile
+                  stream={localStream}
+                  label={`${user.username} (You)`}
+                  muted
+                  fillHeight
+                  cameraOff={!isCameraOn}
+                  avatarUrl={user.avatarUrl}
+                  avatarName={user.username}
+                  mirrored={facingMode === "user" && !isScreenSharing}
+                />
+                <VideoTile
+                  stream={otherParticipants[0][1].stream}
+                  label={otherParticipants[0][1].username}
+                  connState={otherParticipants[0][1].connState}
+                  cameraOff={otherParticipants[0][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[0][0])}
+                  fillHeight
+                />
+              </div>
+            </div>
+
+            {/* Mobile (<md) Full-Screen Remote + Draggable PiP */}
+            <div className="md:hidden h-full w-full relative">
+              <VideoTile
+                stream={otherParticipants[0][1].stream}
+                label={otherParticipants[0][1].username}
+                connState={otherParticipants[0][1].connState}
+                cameraOff={otherParticipants[0][1].remoteCameraOff}
+                onRetry={() => manualRetry(otherParticipants[0][0])}
+                fullSize
+              />
+              <DraggableSelfView widthClass={isDirectCall ? "w-24" : "w-28"}>
+                <VideoTile
+                  stream={localStream}
+                  label={isDirectCall ? null : `${user.username} (You)`}
+                  muted
+                  cameraOff={!isCameraOn}
+                  avatarUrl={user.avatarUrl}
+                  avatarName={user.username}
+                  mirrored={facingMode === "user" && !isScreenSharing}
+                  portrait={isDirectCall}
+                />
+              </DraggableSelfView>
+            </div>
+          </div>
+        )}
 
         {participantCount === 3 && (
-          // 3 person: 2 equal tiles on top row, 1 full-width tile on bottom row
-          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 flex flex-col gap-2 md:gap-3">
-            <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
+          // 3 people: 3 columns side-by-side on laptop, 2 top + 1 bottom on mobile
+          <div className="h-full w-full flex items-center justify-center p-2 sm:p-4 md:p-6 pt-18 sm:pt-20 md:pt-22 pb-22 sm:pb-24 md:pb-26">
+            {/* Desktop / Laptop (md+) 3 equal columns */}
+            <div className="hidden md:grid md:grid-cols-3 gap-4 w-full h-full max-w-7xl max-h-[82vh]">
               <VideoTile
                 stream={localStream}
                 label={`${user.username} (You)`}
@@ -1615,8 +1662,6 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 onRetry={() => manualRetry(otherParticipants[0][0])}
                 fillHeight
               />
-            </div>
-            <div className="flex-[1.4]">
               <VideoTile
                 stream={otherParticipants[1][1].stream}
                 label={otherParticipants[1][1].username}
@@ -1625,40 +1670,47 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 onRetry={() => manualRetry(otherParticipants[1][0])}
                 fillHeight
               />
+            </div>
+
+            {/* Mobile (<md) 2 top + 1 bottom */}
+            <div className="md:hidden flex flex-col gap-2 w-full h-full">
+              <div className="flex-1 grid grid-cols-2 gap-2">
+                <VideoTile
+                  stream={localStream}
+                  label={`${user.username} (You)`}
+                  muted
+                  fillHeight
+                  cameraOff={!isCameraOn}
+                  avatarUrl={user.avatarUrl}
+                  mirrored={facingMode === "user" && !isScreenSharing}
+                />
+                <VideoTile
+                  stream={otherParticipants[0][1].stream}
+                  label={otherParticipants[0][1].username}
+                  connState={otherParticipants[0][1].connState}
+                  cameraOff={otherParticipants[0][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[0][0])}
+                  fillHeight
+                />
+              </div>
+              <div className="flex-[1.2]">
+                <VideoTile
+                  stream={otherParticipants[1][1].stream}
+                  label={otherParticipants[1][1].username}
+                  connState={otherParticipants[1][1].connState}
+                  cameraOff={otherParticipants[1][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[1][0])}
+                  fillHeight
+                />
+              </div>
             </div>
           </div>
         )}
 
         {participantCount === 4 && (
-          // 4 person: clean 2×2 equal grid
-          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 grid grid-cols-2 grid-rows-2 gap-2 md:gap-3">
-            <VideoTile
-              stream={localStream}
-              label={`${user.username} (You)`}
-              muted
-              fillHeight
-              cameraOff={!isCameraOn}
-              avatarUrl={user.avatarUrl}
-              mirrored={facingMode === "user" && !isScreenSharing}
-            />
-            {otherParticipants.map(([userId, p]) => (
-              <VideoTile
-                key={userId}
-                stream={p.stream}
-                label={p.username}
-                connState={p.connState}
-                cameraOff={p.remoteCameraOff}
-                onRetry={() => manualRetry(userId)}
-                fillHeight
-              />
-            ))}
-          </div>
-        )}
-
-        {participantCount === 5 && (
-          // 5 person: 2 tiles top row, 2 tiles middle row, 1 full-width bottom row
-          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 flex flex-col gap-2 md:gap-3">
-            <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
+          // 4 people: Clean 2×2 grid centered on laptop
+          <div className="h-full w-full flex items-center justify-center p-2 sm:p-4 md:p-6 pt-18 sm:pt-20 md:pt-22 pb-22 sm:pb-24 md:pb-26">
+            <div className="grid grid-cols-2 grid-rows-2 gap-2 sm:gap-3 md:gap-4 w-full h-full max-w-6xl max-h-[82vh]">
               <VideoTile
                 stream={localStream}
                 label={`${user.username} (You)`}
@@ -1668,6 +1720,36 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 avatarUrl={user.avatarUrl}
                 mirrored={facingMode === "user" && !isScreenSharing}
               />
+              {otherParticipants.slice(0, 3).map(([userId, p]) => (
+                <VideoTile
+                  key={userId}
+                  stream={p.stream}
+                  label={p.username}
+                  connState={p.connState}
+                  cameraOff={p.remoteCameraOff}
+                  onRetry={() => manualRetry(userId)}
+                  fillHeight
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {participantCount === 5 && (
+          // 5 people: Laptop 3 top + 2 centered bottom, Mobile 2 top + 2 mid + 1 bot
+          <div className="h-full w-full flex items-center justify-center p-2 sm:p-4 md:p-6 pt-18 sm:pt-20 md:pt-22 pb-22 sm:pb-24 md:pb-26">
+            {/* Desktop / Laptop (md+) 3 top + 2 centered bottom */}
+            <div className="hidden md:grid md:grid-cols-6 md:grid-rows-2 gap-4 w-full h-full max-w-7xl max-h-[82vh]">
+              <VideoTile
+                stream={localStream}
+                label={`${user.username} (You)`}
+                muted
+                fillHeight
+                cameraOff={!isCameraOn}
+                avatarUrl={user.avatarUrl}
+                mirrored={facingMode === "user" && !isScreenSharing}
+                className="col-span-2"
+              />
               <VideoTile
                 stream={otherParticipants[0][1].stream}
                 label={otherParticipants[0][1].username}
@@ -1675,9 +1757,8 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 cameraOff={otherParticipants[0][1].remoteCameraOff}
                 onRetry={() => manualRetry(otherParticipants[0][0])}
                 fillHeight
+                className="col-span-2"
               />
-            </div>
-            <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3">
               <VideoTile
                 stream={otherParticipants[1][1].stream}
                 label={otherParticipants[1][1].username}
@@ -1685,6 +1766,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 cameraOff={otherParticipants[1][1].remoteCameraOff}
                 onRetry={() => manualRetry(otherParticipants[1][0])}
                 fillHeight
+                className="col-span-2"
               />
               <VideoTile
                 stream={otherParticipants[2][1].stream}
@@ -1693,9 +1775,8 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 cameraOff={otherParticipants[2][1].remoteCameraOff}
                 onRetry={() => manualRetry(otherParticipants[2][0])}
                 fillHeight
+                className="col-span-3"
               />
-            </div>
-            <div className="flex-[1.4]">
               <VideoTile
                 stream={otherParticipants[3][1].stream}
                 label={otherParticipants[3][1].username}
@@ -1703,34 +1784,88 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 cameraOff={otherParticipants[3][1].remoteCameraOff}
                 onRetry={() => manualRetry(otherParticipants[3][0])}
                 fillHeight
+                className="col-span-3"
               />
+            </div>
+
+            {/* Mobile (<md) */}
+            <div className="md:hidden flex flex-col gap-2 w-full h-full">
+              <div className="flex-1 grid grid-cols-2 gap-2">
+                <VideoTile
+                  stream={localStream}
+                  label={`${user.username} (You)`}
+                  muted
+                  fillHeight
+                  cameraOff={!isCameraOn}
+                  avatarUrl={user.avatarUrl}
+                  mirrored={facingMode === "user" && !isScreenSharing}
+                />
+                <VideoTile
+                  stream={otherParticipants[0][1].stream}
+                  label={otherParticipants[0][1].username}
+                  connState={otherParticipants[0][1].connState}
+                  cameraOff={otherParticipants[0][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[0][0])}
+                  fillHeight
+                />
+              </div>
+              <div className="flex-1 grid grid-cols-2 gap-2">
+                <VideoTile
+                  stream={otherParticipants[1][1].stream}
+                  label={otherParticipants[1][1].username}
+                  connState={otherParticipants[1][1].connState}
+                  cameraOff={otherParticipants[1][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[1][0])}
+                  fillHeight
+                />
+                <VideoTile
+                  stream={otherParticipants[2][1].stream}
+                  label={otherParticipants[2][1].username}
+                  connState={otherParticipants[2][1].connState}
+                  cameraOff={otherParticipants[2][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[2][0])}
+                  fillHeight
+                />
+              </div>
+              <div className="flex-[1.2]">
+                <VideoTile
+                  stream={otherParticipants[3][1].stream}
+                  label={otherParticipants[3][1].username}
+                  connState={otherParticipants[3][1].connState}
+                  cameraOff={otherParticipants[3][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[3][0])}
+                  fillHeight
+                />
+              </div>
             </div>
           </div>
         )}
 
         {participantCount >= 6 && (
-          // 6 person: 2 columns × 3 rows equal grid
-          <div className="h-full p-2 md:p-3 pt-20 md:pt-24 pb-24 md:pb-28 grid grid-cols-2 grid-rows-3 gap-2 md:gap-3">
-            <VideoTile
-              stream={localStream}
-              label={`${user.username} (You)`}
-              muted
-              fillHeight
-              cameraOff={!isCameraOn}
-              avatarUrl={user.avatarUrl}
-              mirrored={facingMode === "user" && !isScreenSharing}
-            />
-            {otherParticipants.slice(0, 5).map(([userId, p]) => (
+          // 6 people: Laptop 3 cols × 2 rows equal widescreen grid! Mobile 2 cols × 3 rows
+          <div className="h-full w-full flex items-center justify-center p-2 sm:p-4 md:p-6 pt-18 sm:pt-20 md:pt-22 pb-22 sm:pb-24 md:pb-26">
+            <div className="grid grid-cols-2 grid-rows-3 md:grid-cols-3 md:grid-rows-2 gap-2 sm:gap-3 md:gap-4 w-full h-full max-w-7xl max-h-[82vh]">
               <VideoTile
-                key={userId}
-                stream={p.stream}
-                label={p.username}
-                connState={p.connState}
-                cameraOff={p.remoteCameraOff}
-                onRetry={() => manualRetry(userId)}
+                stream={localStream}
+                label={`${user.username} (You)`}
+                muted
                 fillHeight
+                cameraOff={!isCameraOn}
+                avatarUrl={user.avatarUrl}
+                mirrored={facingMode === "user" && !isScreenSharing}
               />
-            ))}
+              {otherParticipants.slice(0, 5).map(([userId, p]) => (
+                <VideoTile
+                  key={userId}
+                  stream={p.stream}
+                  label={p.username}
+                  connState={p.connState}
+                  cameraOff={p.remoteCameraOff}
+                  onRetry={() => manualRetry(userId)}
+                  fillHeight
+                />
+              ))}
+            </div>
           </div>
         )}
 
