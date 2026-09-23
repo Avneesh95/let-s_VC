@@ -78,10 +78,10 @@ function ChatRow({ u, isActive, isOnline, onSelect, unreadCount }) {
   return (
     <li
       onClick={() => onSelect(u)}
-      className={`flex items-center gap-3 mx-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+      className={`flex items-center gap-3 mx-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all border-l-[3.5px] ${
         isActive
-          ? "bg-brand/15 dark:bg-brand/20 text-ink shadow-xs"
-          : "hover:bg-ink/[0.04] text-ink/80 hover:text-ink"
+          ? "bg-brand/10 dark:bg-brand/20 border-brand text-ink shadow-xs"
+          : "border-transparent hover:bg-ink/[0.04] text-ink/80 hover:text-ink"
       }`}
     >
       <span className="relative shrink-0">

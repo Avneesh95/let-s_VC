@@ -33,6 +33,15 @@ function getSocketId(userId) {
   return sockets ? sockets.values().next().value : undefined;
 }
 
+function notifyUser(userId, event, payload = {}) {
+  const socketId = getSocketId(userId);
+  if (socketId && ioInstance) {
+    ioInstance.to(socketId).emit(event, payload);
+    return true;
+  }
+  return false;
+}
+
 // Shared by messaging, calling, and room invites — the friends-only rule
 // is the same authorization check applied at every entry point that needs it.
 async function areFriends(userId, otherUserId) {
@@ -528,3 +537,4 @@ function initSocket(io) {
 
 module.exports = initSocket;
 module.exports.relayCallDeclined = relayCallDeclined;
+module.exports.notifyUser = notifyUser;

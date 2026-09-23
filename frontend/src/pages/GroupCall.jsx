@@ -1624,17 +1624,19 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                 onRetry={() => manualRetry(otherParticipants[0][0])}
                 fullSize
               />
-              <DraggableSelfView widthClass={isDirectCall ? "w-24" : "w-28"}>
-                <VideoTile
-                  stream={localStream}
-                  label={isDirectCall ? null : `${user.username} (You)`}
-                  muted
-                  cameraOff={!isCameraOn}
-                  avatarUrl={user.avatarUrl}
-                  avatarName={user.username}
-                  mirrored={facingMode === "user" && !isScreenSharing}
-                  portrait={isDirectCall}
-                />
+              <DraggableSelfView widthClass="w-32 sm:w-36">
+                <div className="rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/30 bg-callbg aspect-[3/4]">
+                  <VideoTile
+                    stream={localStream}
+                    label={`${user.username} (You)`}
+                    muted
+                    cameraOff={!isCameraOn}
+                    avatarUrl={user.avatarUrl}
+                    avatarName={user.username}
+                    mirrored={facingMode === "user" && !isScreenSharing}
+                    fillHeight
+                  />
+                </div>
               </DraggableSelfView>
             </div>
           </div>
@@ -1673,8 +1675,8 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
             </div>
 
             {/* Mobile (<md) 2 top + 1 bottom */}
-            <div className="md:hidden flex flex-col gap-2 w-full h-full">
-              <div className="flex-1 grid grid-cols-2 gap-2">
+            <div className="md:hidden flex flex-col gap-2 w-full h-full min-h-0">
+              <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
                 <VideoTile
                   stream={localStream}
                   label={`${user.username} (You)`}
@@ -1693,7 +1695,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                   fillHeight
                 />
               </div>
-              <div className="flex-[1.2]">
+              <div className="flex-1 min-h-0">
                 <VideoTile
                   stream={otherParticipants[1][1].stream}
                   label={otherParticipants[1][1].username}

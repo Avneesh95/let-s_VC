@@ -104,21 +104,21 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
 
   return (
     <div
-      className={`flex ${hasReactions ? "mb-6.5" : "mb-3"} ${
+      className={`flex ${hasReactions ? "mb-6.5" : "mb-2.5"} ${
         isOwn ? "justify-end" : "justify-start"
       } group relative animate-fade-in-up w-full`}
     >
       <div
-        className={`flex items-end gap-1.5 max-w-[85%] sm:max-w-[75%] md:max-w-[65%] min-w-0 ${
+        className={`flex items-end gap-1.5 max-w-[88%] sm:max-w-[78%] md:max-w-[68%] min-w-0 ${
           isOwn ? "flex-row-reverse" : "flex-row"
         }`}
       >
         {/* Main Bubble Container */}
         <div
-          className={`relative min-w-[75px] max-w-full rounded-2xl px-3.5 py-2.5 shadow-sm transition-shadow ${
+          className={`relative max-w-full rounded-2xl px-3.5 py-2 transition-all ${
             isOwn
-              ? "bg-gradient-to-br from-[#F4600F]/15 via-[#F4600F]/10 to-[#FFA733]/15 dark:from-[#F4600F]/25 dark:to-[#FFA733]/15 text-ink rounded-br-xs border border-brand/20 shadow-orange-500/5"
-              : "bg-surface text-ink rounded-bl-xs border border-line/15 shadow-black/[0.03]"
+              ? "bg-gradient-to-r from-[#F4600F] via-[#F86E18] to-[#FF7A00] text-white rounded-tr-xs shadow-md shadow-orange-500/15"
+              : "bg-surface text-ink rounded-tl-xs border border-line/20 dark:border-white/10 shadow-xs"
           } ${message.type === "image" ? "!p-1.5 !pb-1" : ""}`}
         >
           {message.type === "image" ? (
@@ -143,32 +143,38 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
                     !imageLoaded ? "hidden" : "block"
                   }`}
                 />
-                <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 transition-colors rounded-xl flex items-center justify-center opacity-0 group-hover/img:opacity-100">
-                  <span className="w-9 h-9 rounded-full bg-black/60 text-white flex items-center justify-center shadow-lg backdrop-blur-sm">
+                <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors rounded-xl flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                  <span className="w-9 h-9 rounded-full bg-black/65 text-white flex items-center justify-center shadow-lg backdrop-blur-sm">
                     <ZoomIn className="w-4.5 h-4.5" />
                   </span>
                 </div>
               </button>
+
+              {/* Timestamp for Image */}
+              <div className="flex items-center justify-end gap-1 px-1.5 pt-1 pb-0.5 select-none">
+                <span className={`text-[10px] font-medium tracking-tight ${isOwn ? "text-white/80" : "text-ink/45"}`}>
+                  {time}
+                </span>
+                {isOwn && (
+                  <CheckCheck className="w-3.5 h-3.5 text-white/95 shrink-0" />
+                )}
+              </div>
             </div>
           ) : (
-            <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words break-all break-anywhere select-text font-normal">
-              {message.text}
-            </p>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <p className="text-[14px] sm:text-[14.5px] leading-relaxed whitespace-pre-wrap break-words break-all select-text font-normal min-w-0 flex-1">
+                {message.text}
+              </p>
+              <div className="flex items-center gap-1 ml-auto shrink-0 select-none self-end pb-0.5">
+                <span className={`text-[10px] font-medium tracking-tight ${isOwn ? "text-white/80" : "text-ink/45"}`}>
+                  {time}
+                </span>
+                {isOwn && (
+                  <CheckCheck className="w-3.5 h-3.5 text-white/95 shrink-0" />
+                )}
+              </div>
+            </div>
           )}
-
-          {/* Time & Read Checkmark */}
-          <div
-            className={`flex items-center justify-end gap-1 mt-0.5 select-none ${
-              message.type === "image" ? "px-1.5 pt-1 pb-0.5" : ""
-            }`}
-          >
-            <span className="text-[10px] text-ink/45 font-medium tracking-tight">
-              {time}
-            </span>
-            {isOwn && (
-              <CheckCheck className="w-3 h-3 text-brand dark:text-brand-light opacity-80" />
-            )}
-          </div>
 
           {/* Reaction badges */}
           {hasReactions && (

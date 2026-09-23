@@ -120,8 +120,17 @@ export default function ChatWindow({
 
   return (
     <div className="flex-1 flex flex-col bg-chatbg w-full min-h-0 relative">
+      {/* Subtle decorative background pattern */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.035] dark:opacity-[0.05]"
+        style={{
+          backgroundImage: `radial-gradient(currentColor 1.25px, transparent 1.25px)`,
+          backgroundSize: "24px 24px",
+        }}
+      />
+
       {/* Chat Header */}
-      <div className="flex items-center justify-between gap-3 bg-surface/90 backdrop-blur-md px-4 py-3 border-b border-line/15 font-medium shadow-sm z-20">
+      <div className="flex items-center justify-between gap-3 bg-surface/90 backdrop-blur-md px-4 py-3 border-b border-line/15 font-medium shadow-sm z-20 relative">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}

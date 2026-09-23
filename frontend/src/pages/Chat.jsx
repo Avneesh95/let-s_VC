@@ -37,26 +37,29 @@ export default function Chat() {
     requestNotificationPermission();
   }, []);
 
-  // Clear the unread badge for whoever's open the moment the tab comes
-  // back into focus — covers the case where a message arrived while this
-  // conversation was already open but the tab/app was backgrounded, so it
-  // was correctly counted as unread but the person is looking right at it
-  // now.
+  // Clear the unread badge and refresh contacts when tab regains focus
   useEffect(() => {
     const onVisible = () => {
-      const current = activeUserRef.current;
-      if (document.visibilityState === "visible" && current) {
-        setUnreadCounts((prev) => {
-          if (!prev[current._id]) return prev;
-          const next = { ...prev };
-          delete next[current._id];
-          return next;
-        });
+      if (document.visibilityState === "visible") {
+        refreshUsers();
+        const current = activeUserRef.current;
+        if (current) {
+          setUnreadCounts((prev) => {
+            if (!prev[current._id]) return prev;
+            const next = { ...prev };
+            delete next[current._id];
+            return next;
+          });
+        }
       }
     };
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshUsers]);
 
   // Load contact list, reusable so friend actions can refresh it
   const refreshUsers = useCallback(() => {
@@ -180,6 +183,9 @@ export default function Chat() {
     const handleStopTyping = ({ senderId }) => {
       if (activeUser && senderId === activeUser._id) setIsOtherTyping(false);
     };
+    const handleFriendUpdated = () => {
+      refreshUsers();
+    };
 
     socket.on("receive-message", handleReceive);
     socket.on("message-sent", handleSent);
@@ -187,6 +193,7 @@ export default function Chat() {
     socket.on("message-reaction-updated", handleReactionUpdated);
     socket.on("typing", handleTyping);
     socket.on("stop-typing", handleStopTyping);
+    socket.on("friend-list-updated", handleFriendUpdated);
 
     return () => {
       socket.off("receive-message", handleReceive);
@@ -195,8 +202,9 @@ export default function Chat() {
       socket.off("message-reaction-updated", handleReactionUpdated);
       socket.off("typing", handleTyping);
       socket.off("stop-typing", handleStopTyping);
+      socket.off("friend-list-updated", handleFriendUpdated);
     };
-  }, [socket, activeUser, users, user.id]);
+  }, [socket, activeUser, users, user.id, refreshUsers]);
 
   const handleAddFriend = async (userId) => {
     try {
