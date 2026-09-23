@@ -1,50 +1,44 @@
-// A single source of truth for the brand mark, used in the sidebar header,
-// both auth pages, and error/empty states — so a future rebrand only means
-// editing one file instead of hunting down every place "chat/app" text was
-// hand-typed (which is exactly the situation this replaces).
-//
-// The glyph is two overlapping speech-bubbles — a literal "peer to peer"
-// mark — finished with a hairline gold rim so it reads as a badge, not a
-// flat icon tile.
 const SIZES = {
-  sm: { mark: "w-7 h-7 rounded-[10px]", glyph: "w-3.5 h-3.5", text: "text-base" },
-  md: { mark: "w-9 h-9 rounded-xl", glyph: "w-4.5 h-4.5", text: "text-xl" },
-  lg: { mark: "w-12 h-12 rounded-2xl", glyph: "w-6 h-6", text: "text-2xl md:text-3xl" },
+  sm: { mark: "w-8 h-8 rounded-xl", glyph: "w-4.5 h-4.5", text: "text-base" },
+  md: { mark: "w-10 h-10 rounded-2xl", glyph: "w-5.5 h-5.5", text: "text-xl" },
+  lg: { mark: "w-13 h-13 rounded-3xl", glyph: "w-7.5 h-7.5", text: "text-2xl sm:text-3xl" },
 };
 
 export default function Logo({ size = "md", className = "", onDark = false }) {
   const s = SIZES[size] || SIZES.md;
 
   return (
-    <span className={`inline-flex items-center gap-2.5 ${className}`}>
+    <span className={`inline-flex items-center gap-2.5 select-none ${className}`}>
       <span
-        className={`${s.mark} shrink-0 flex items-center justify-center bg-brand-gradient shadow-neon-brand ring-1 ring-gold/40 relative overflow-hidden`}
+        className={`${s.mark} shrink-0 flex items-center justify-center bg-gradient-to-br from-[#FFA733] via-[#F4600F] to-[#C2440A] shadow-[0_4px_16px_rgba(244,96,15,0.4)] ring-1 ring-white/20 relative overflow-hidden transition-transform hover:scale-105`}
       >
-        {/* faint diagonal sheen for a polished, lacquered feel */}
-        <span className="absolute inset-0 bg-gradient-to-tr from-white/15 via-transparent to-transparent" />
-        <svg viewBox="0 0 24 24" fill="none" className={`${s.glyph} text-white relative`}>
+        {/* Specular highlights */}
+        <span className="absolute inset-0 bg-gradient-to-tr from-white/25 via-transparent to-transparent pointer-events-none" />
+        <svg viewBox="0 0 32 32" fill="none" className={`${s.glyph} text-white relative drop-shadow-sm`}>
+          {/* Interlocking P2P Video Bubble 1 */}
           <path
-            d="M3 6.2C3 5.08 3.9 4.2 5 4.2h9c1.1 0 2 .88 2 2v6c0 1.1-.9 2-2 2H8.4L5 17.5V14.2H5c-1.1 0-2-.9-2-2V6.2Z"
+            d="M4 8C4 5.79 5.79 4 8 4H18C20.21 4 22 5.79 22 8V16C22 18.21 20.21 20 18 20H10L6 24V20H8C5.79 20 4 18.21 4 16V8Z"
             fill="currentColor"
-            opacity="0.55"
+            fillOpacity="0.95"
           />
+          {/* Bubble 2 Camera Notch */}
+          <circle cx="11" cy="12" r="2.5" fill="#F4600F" />
+          <circle cx="17" cy="12" r="2.5" fill="#FFA733" />
+          {/* Mini video play triangle */}
           <path
-            d="M9.5 9.4c0-1.1.9-2 2-2h7c1.1 0 2 .9 2 2v5.4c0 1.1-.9 2-2 2h-.9v3l-3.3-3H11.5c-1.1 0-2-.9-2-2V9.4Z"
+            d="M20 13L27 9V21L20 17V13Z"
             fill="currentColor"
+            fillOpacity="0.85"
           />
         </svg>
       </span>
-      {/*
-        text-ink follows the light/dark theme toggle, which is correct
-        everywhere else the logo appears — but the video-call screens are
-        always dark regardless of that toggle (see callbg in
-        tailwind.config.js), so in light mode "text-ink" would render
-        near-black wordmark text on a near-black background and vanish.
-        The onDark prop opts into a fixed light wordmark instead, for
-        exactly those always-dark surfaces.
-      */}
-      <span className={`font-display font-semibold tracking-tight ${onDark ? "text-white" : "text-ink"} ${s.text}`}>
-        Peer<span className={onDark ? "text-brand-light" : "text-brand dark:text-brand-light"}>ly</span>
+
+      <span
+        className={`font-display font-bold tracking-tight leading-none ${
+          onDark ? "text-white" : "text-ink"
+        } ${s.text}`}
+      >
+        Peer<span className="text-brand dark:text-brand-light">ly</span>
       </span>
     </span>
   );
