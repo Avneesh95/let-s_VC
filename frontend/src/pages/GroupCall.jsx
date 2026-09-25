@@ -301,7 +301,8 @@ function VideoTile({
 
   return (
     <div
-      className={`relative bg-[#0d1017] rounded-2xl overflow-hidden flex items-center justify-center ring-1 ring-white/15 shadow-xl ${
+      aria-label={label || "Video participant"}
+      className={`relative min-w-0 min-h-0 bg-[#0d1017] rounded-2xl overflow-hidden flex items-center justify-center ring-1 ring-white/15 shadow-xl shadow-black/25 ${
         fullSize
           ? "w-full h-full"
           : fillHeight
@@ -317,7 +318,7 @@ function VideoTile({
           autoPlay
           playsInline
           muted={muted}
-          className={`w-full h-full ${fullSize ? "object-contain" : "object-cover"} ${
+          className={`w-full h-full ${fullSize ? "object-contain" : "object-cover object-center"} ${
             mirrored ? "-scale-x-100" : ""
           }`}
         />
@@ -351,8 +352,11 @@ function VideoTile({
           <span className="text-xs text-white/50 font-medium">Camera off</span>
         </div>
       )}
+      {stream && !cameraOff && (
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+      )}
       {label && (
-        <span className="absolute bottom-2.5 left-2.5 bg-black/65 backdrop-blur-md text-white text-[11px] sm:text-xs font-semibold px-2.5 py-1 rounded-lg ring-1 ring-white/10 flex items-center gap-1.5 max-w-[80%] truncate select-none shadow-md z-10">
+        <span className="absolute bottom-2.5 left-2.5 bg-black/65 backdrop-blur-md text-white text-[11px] sm:text-xs font-semibold px-2.5 py-1.5 rounded-lg ring-1 ring-white/10 flex items-center gap-1.5 max-w-[80%] truncate select-none shadow-md z-10">
           <span className="truncate">{label}</span>
           {muted && <MicOff className="w-3 h-3 text-danger shrink-0" />}
         </span>
@@ -1576,7 +1580,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                   ) : (
                     <>
                       <p className="text-xs text-white/60 font-medium">Waiting for others to join…</p>
-                      <p className="font-display text-lg sm:text-xl font-bold tracking-widest text-gold mt-0.5 font-mono">
+                      <p className="font-mono text-lg sm:text-xl font-bold tracking-widest text-gold mt-0.5">
                         {roomCode}
                       </p>
                     </>
@@ -1646,7 +1650,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           // 3 people: 3 columns side-by-side on laptop, 2 top + 1 bottom on mobile
           <div className="h-full w-full flex items-center justify-center p-2 sm:p-4 md:p-6 pt-18 sm:pt-20 md:pt-22 pb-22 sm:pb-24 md:pb-26">
             {/* Desktop / Laptop (md+) 3 equal columns */}
-            <div className="hidden md:grid md:grid-cols-3 gap-4 w-full h-full max-w-7xl max-h-[82vh]">
+            <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 w-full h-full max-w-7xl max-h-[82vh]">
               <VideoTile
                 stream={localStream}
                 label={`${user.username} (You)`}

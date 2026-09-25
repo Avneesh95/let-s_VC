@@ -51,7 +51,8 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
   }, [text]);
 
   const handleChange = (e) => {
-    setText(e.target.value);
+    const nextText = e.target.value;
+    setText(nextText);
     onTyping?.();
 
     clearTimeout(typingTimeout.current);
@@ -62,6 +63,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
 
   const handleSelectEmoji = (emoji) => {
     setText((prev) => prev + emoji);
+    onTyping?.();
     textareaRef.current?.focus();
   };
 
@@ -98,6 +100,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
     onSend(text.trim());
     setText("");
     onStopTyping?.();
+    textareaRef.current?.focus();
   };
 
   const handleSubmit = (e) => {
@@ -177,7 +180,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
       {/* Main Input Form */}
       <form
         onSubmit={handleSubmit}
-        className="flex items-end gap-2 px-3 sm:px-4 py-2.5 relative"
+        className="flex items-end gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2.5 relative"
         style={{ paddingBottom: "max(0.65rem, env(safe-area-inset-bottom))" }}
       >
         <input
@@ -194,7 +197,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           title="Attach photo"
-          className="w-9 h-9 shrink-0 mb-0.5 rounded-full flex items-center justify-center text-ink/45 hover:text-brand hover:bg-brand/10 disabled:opacity-40 transition-all cursor-pointer"
+          className="w-9 h-9 shrink-0 mb-0.5 rounded-xl flex items-center justify-center text-ink/45 hover:text-brand hover:bg-brand/10 disabled:opacity-40 transition-all cursor-pointer"
         >
           <Paperclip className="w-4.5 h-4.5" strokeWidth={1.8} />
         </button>
@@ -244,7 +247,9 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="w-full resize-none border border-line/15 bg-paper/60 dark:bg-paper/40 rounded-2xl px-4 py-2.25 text-base sm:text-sm leading-relaxed max-h-36 overflow-y-auto thin-scrollbar focus:outline-none focus:ring-2 focus:ring-brand/35 focus:border-brand/50 text-ink placeholder:text-ink/35 transition-all"
+            aria-label="Message"
+            maxLength={4000}
+            className="block w-full resize-none border border-line/20 bg-paper/70 dark:bg-paper/45 rounded-[1.15rem] px-3.5 py-2.5 text-[15px] sm:text-sm leading-6 max-h-36 overflow-y-auto thin-scrollbar focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand/60 text-ink placeholder:text-ink/35 transition-all"
           />
         </div>
 
@@ -253,7 +258,7 @@ export default function MessageInput({ onSend, onSendImage, onTyping, onStopTypi
           type="submit"
           disabled={!canSubmit}
           aria-label="Send message"
-          className="w-9 h-9 shrink-0 mb-0.5 rounded-full bg-brand-gradient hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:pointer-events-none text-white flex items-center justify-center shadow-neon-brand transition-all cursor-pointer"
+          className="w-10 h-10 shrink-0 mb-0.5 rounded-xl bg-brand-gradient hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:pointer-events-none text-white flex items-center justify-center shadow-neon-brand transition-all cursor-pointer"
         >
           {uploading ? (
             <Loader2 className="w-4 h-4 animate-spin" />

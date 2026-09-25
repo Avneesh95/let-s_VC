@@ -104,7 +104,7 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
 
   return (
     <div
-      className={`flex ${hasReactions ? "mb-6.5" : "mb-2.5"} ${
+      className={`flex ${hasReactions ? "mb-6" : "mb-2.5"} ${
         isOwn ? "justify-end" : "justify-start"
       } group relative animate-fade-in-up w-full`}
     >
@@ -161,11 +161,11 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <p className="text-[14px] sm:text-[14.5px] leading-relaxed whitespace-pre-wrap break-words break-all select-text font-normal min-w-0 flex-1">
+            <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+              <p className="text-[14px] sm:text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words select-text font-normal min-w-0 flex-1">
                 {message.text}
               </p>
-              <div className="flex items-center gap-1 ml-auto shrink-0 select-none self-end pb-0.5">
+              <div className="flex items-center gap-1 shrink-0 select-none pb-0.5">
                 <span className={`text-[10px] font-medium tracking-tight ${isOwn ? "text-white/80" : "text-ink/45"}`}>
                   {time}
                 </span>
@@ -202,7 +202,7 @@ export default function MessageBubble({ message, isOwn, onReact, currentUserId }
         </div>
 
         {/* Reaction trigger icon (Desktop hover + Mobile touch friendly) */}
-        <div className="relative shrink-0 opacity-0 group-hover:opacity-100 transition-opacity focus-within:opacity-100">
+        <div className="relative shrink-0 opacity-70 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           <button
             onClick={() => setPickerOpen((v) => !v)}
             className="w-7 h-7 rounded-full hover:bg-ink/5 active:scale-90 flex items-center justify-center text-ink/40 hover:text-ink/80 transition-all cursor-pointer"
