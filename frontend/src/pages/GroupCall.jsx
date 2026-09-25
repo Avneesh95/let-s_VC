@@ -306,7 +306,7 @@ function VideoTile({
         fullSize
           ? "w-full h-full"
           : fillHeight
-          ? "w-full h-full min-h-0"
+          ? "w-full h-full min-h-0 max-md:h-auto max-md:aspect-[3/4]"
           : portrait
           ? "aspect-[3/5] w-full"
           : "aspect-video w-full"

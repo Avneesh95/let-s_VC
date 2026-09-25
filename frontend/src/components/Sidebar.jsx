@@ -255,6 +255,18 @@ export default function Sidebar({
       <div className="px-4 py-3 border-b border-line/15 flex items-center justify-between">
         <Logo size="sm" />
         <div className="flex items-center gap-1">
+          <button
+            onClick={() => {
+              setTab("find");
+              setSearchQuery("");
+            }}
+            title="Find friends"
+            aria-label="Find friends"
+            className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:bg-brand/10 active:scale-95 transition-all cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" strokeWidth={2} />
+            <span className="hidden sm:inline">Find friends</span>
+          </button>
           <ThemeToggle />
           <button
             onClick={() => setSettingsOpen(true)}
@@ -369,7 +381,7 @@ export default function Sidebar({
               : "text-ink/70 hover:bg-ink/5"
           }`}
         >
-          <Users className="w-3.5 h-3.5" /> Find People
+          <Users className="w-3.5 h-3.5" /> Find Friends
           {pendingReceivedCount > 0 && (
             <span className="bg-gold text-callbg text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ring-2 ring-surface">
               {pendingReceivedCount}
