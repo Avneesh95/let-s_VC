@@ -13,6 +13,7 @@ import {
   Link2,
   X,
   Send,
+  Loader2,
   Minimize2,
   Maximize2,
 } from "lucide-react";
