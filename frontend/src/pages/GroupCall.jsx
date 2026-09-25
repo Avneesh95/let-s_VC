@@ -421,7 +421,10 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
     try {
       await guestLogin(guestName.trim());
     } catch (err) {
-      setGuestError("Something went wrong — try again");
+      setGuestError(
+        err.response?.data?.message ||
+          "Unable to reach the call server. Check that the backend is running and try again."
+      );
     } finally {
       setGuestJoining(false);
     }
