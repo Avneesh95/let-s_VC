@@ -1620,17 +1620,19 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
             </div>
 
             {/* Mobile (<md) Full-Screen Remote + Draggable PiP */}
-            <div className="md:hidden h-full w-full relative">
-              <VideoTile
-                stream={otherParticipants[0][1].stream}
-                label={otherParticipants[0][1].username}
-                connState={otherParticipants[0][1].connState}
-                cameraOff={otherParticipants[0][1].remoteCameraOff}
-                onRetry={() => manualRetry(otherParticipants[0][0])}
-                fullSize
-              />
-              <DraggableSelfView widthClass="w-32 sm:w-36">
-                <div className="rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/30 bg-callbg aspect-[3/4]">
+            <div className="md:hidden h-full w-full relative flex items-center justify-center p-3 pb-24">
+              <div className="w-full max-w-md aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/15">
+                <VideoTile
+                  stream={otherParticipants[0][1].stream}
+                  label={otherParticipants[0][1].username}
+                  connState={otherParticipants[0][1].connState}
+                  cameraOff={otherParticipants[0][1].remoteCameraOff}
+                  onRetry={() => manualRetry(otherParticipants[0][0])}
+                  fullSize
+                />
+              </div>
+              <DraggableSelfView widthClass="w-28 sm:w-32">
+                <div className="rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/30 bg-callbg aspect-[2/3]">
                   <VideoTile
                     stream={localStream}
                     label={`${user.username} (You)`}
