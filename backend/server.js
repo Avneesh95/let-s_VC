@@ -50,9 +50,13 @@ const server = http.createServer(app);
 // CLIENT_URL can be a single origin or a comma-separated list, e.g.
 // "http://localhost:5173,http://192.168.1.42:5173" — handy when testing
 // from a phone on the same network alongside your desktop browser.
-const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
-  .split(",")
-  .map((url) => url.trim());
+const configuredOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(",").map((url) => url.trim())
+  : ["http://localhost:5173", "http://127.0.0.1:5173"];
+const localOrigins = process.env.NODE_ENV === "production"
+  ? []
+  : ["http://localhost:5173", "http://127.0.0.1:5173"];
+const allowedOrigins = [...new Set([...configuredOrigins, ...localOrigins].filter(Boolean))];
 
 const corsOptions = {
   origin: (origin, callback) => {
