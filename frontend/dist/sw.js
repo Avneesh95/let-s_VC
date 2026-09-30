@@ -1,4 +1,4 @@
-const CACHE_NAME = "chatapp-shell-v1";
+const CACHE_NAME = "chatapp-shell-v2";
 const PRECACHE_URLS = ["/", "/manifest.json"];
 const CONFIG_CACHE_KEY = "https://sw-config.local/api-base-url"; // synthetic — never actually fetched, just used as a Cache Storage key
 

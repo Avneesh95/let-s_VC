@@ -17,6 +17,15 @@ router.post("/request/:userId", protect, asyncHandler(async (req, res) => {
   }
 
   const me = await User.findById(req.userId).select("friends");
+  if (!me) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
   if (me.friends.some((id) => id.toString() === userId)) {
     return res.status(400).json({ message: "Already friends" });
   }

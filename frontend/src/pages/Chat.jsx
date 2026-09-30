@@ -37,6 +37,17 @@ export default function Chat() {
     requestNotificationPermission();
   }, []);
 
+  // Load contact list, reusable so friend actions can refresh it
+  const refreshUsers = useCallback(() => {
+    return api
+      .get("/users")
+      .then((res) => setUsers(res.data))
+      .catch((err) => {
+        console.error("Failed to load users:", err.response?.data || err.message);
+        setUsers([]);
+      });
+  }, []);
+
   // Clear the unread badge and refresh contacts when tab regains focus
   useEffect(() => {
     const onVisible = () => {
@@ -60,17 +71,6 @@ export default function Chat() {
       window.removeEventListener("focus", onVisible);
     };
   }, [refreshUsers]);
-
-  // Load contact list, reusable so friend actions can refresh it
-  const refreshUsers = useCallback(() => {
-    return api
-      .get("/users")
-      .then((res) => setUsers(res.data))
-      .catch((err) => {
-        console.error("Failed to load users:", err.response?.data || err.message);
-        setUsers([]);
-      });
-  }, []);
 
   useEffect(() => {
     refreshUsers();

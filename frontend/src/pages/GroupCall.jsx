@@ -319,9 +319,7 @@ function VideoTile({
           autoPlay
           playsInline
           muted={muted}
-          className={`w-full h-full ${fullSize ? "object-contain" : "object-cover object-center"} ${
-            mirrored ? "-scale-x-100" : ""
-          }`}
+          className={`w-full h-full object-cover object-center ${mirrored ? "-scale-x-100" : ""}`}
         />
       ) : showFailed ? (
         <div className="flex flex-col items-center gap-2 px-3 text-center">
@@ -1623,8 +1621,8 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
             </div>
 
             {/* Mobile (<md) Full-Screen Remote + Draggable PiP */}
-            <div className="md:hidden h-full w-full relative flex items-center justify-center p-3 pb-24">
-              <div className="w-full max-w-md aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/15">
+            <div className="md:hidden h-full w-full relative">
+              <div className="w-full h-full overflow-hidden">
                 <VideoTile
                   stream={otherParticipants[0][1].stream}
                   label={otherParticipants[0][1].username}

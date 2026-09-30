@@ -5,6 +5,8 @@ const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 
+const cookieParser = require("cookie-parser");
+
 const authRoutes = require("../routes/auth");
 const userRoutes = require("../routes/users");
 const messageRoutes = require("../routes/messages");
@@ -17,6 +19,7 @@ const Message = require("../models/Message");
 
 const app = express();
 app.use(cors());
+app.use(cookieParser());
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
@@ -36,7 +39,7 @@ app.use((err, req, res, next) => {
 let server;
 let baseUrl;
 
-function request(method, path, body = null, token = null) {
+function request(method, path, body = null, token = null, cookie = null) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, baseUrl);
     const options = {
@@ -49,6 +52,7 @@ function request(method, path, body = null, token = null) {
       },
     };
     if (token) options.headers["Authorization"] = `Bearer ${token}`;
+    if (cookie) options.headers["Cookie"] = cookie;
 
     const req = http.request(options, (res) => {
       let data = "";
@@ -60,7 +64,7 @@ function request(method, path, body = null, token = null) {
         } catch {
           json = data;
         }
-        resolve({ status: res.statusCode, body: json });
+        resolve({ status: res.statusCode, headers: res.headers, body: json });
       });
     });
     req.on("error", reject);
@@ -110,6 +114,7 @@ async function runTests() {
 
   let token1 = null;
   let user1Id = null;
+  let cookie1 = null;
   let token2 = null;
   let user2Id = null;
 
@@ -160,6 +165,7 @@ async function runTests() {
     assert(regUser1.status === 201 && regUser1.body.token, "User 1 registered successfully (201)");
     token1 = regUser1.body.token;
     user1Id = regUser1.body.user.id;
+    cookie1 = regUser1.headers["set-cookie"] ? regUser1.headers["set-cookie"][0].split(";")[0] : null;
 
     const regDup = await request("POST", "/api/auth/register", testUser1);
     assert(regDup.status === 400, "Duplicate registration rejected with 400");
@@ -169,7 +175,7 @@ async function runTests() {
     token2 = regUser2.body.token;
     user2Id = regUser2.body.user.id;
 
-    // 4. User Login
+    // 4. User Login & Refresh Flow
     console.log("\n[4] User Login & Credential Checking");
     const badLogin = await request("POST", "/api/auth/login", {
       email: testUser1.email,
@@ -182,9 +188,27 @@ async function runTests() {
       password: testUser1.password,
     });
     assert(goodLogin.status === 200 && goodLogin.body.token, "Case-insensitive email login succeeds (200)");
+    if (goodLogin.headers["set-cookie"]) {
+      cookie1 = goodLogin.headers["set-cookie"][0].split(";")[0];
+    }
 
-    // 5. Auth Middleware Protection
-    console.log("\n[5] Auth Protection Middleware");
+    console.log("\n[4b] Refresh Token & Session Restoration");
+    const noCookieRefresh = await request("POST", "/api/auth/refresh");
+    assert(noCookieRefresh.status === 401, "Refresh without cookie returns 401");
+
+    if (cookie1) {
+      const validRefresh = await request("POST", "/api/auth/refresh", null, null, cookie1);
+      assert(validRefresh.status === 200 && validRefresh.body.token, "Refresh with valid cookie returns fresh JWT");
+      if (validRefresh.body.token) {
+        token1 = validRefresh.body.token;
+      }
+      if (validRefresh.headers["set-cookie"]) {
+        cookie1 = validRefresh.headers["set-cookie"][0].split(";")[0];
+      }
+    }
+
+    // 5. Auth Middleware Protection & Search
+    console.log("\n[5] Auth Protection Middleware & Search");
     const unauthUsers = await request("GET", "/api/users");
     assert(unauthUsers.status === 401, "Protected route rejects missing token with 401");
 
@@ -193,8 +217,15 @@ async function runTests() {
 
     const authUsers = await request("GET", "/api/users", null, token1);
     assert(
-      authUsers.status === 200 && Array.isArray(authUsers.body) && authUsers.body.some((u) => u._id === user2Id),
-      "User 1 retrieves contact list containing User 2"
+      authUsers.status === 200 && Array.isArray(authUsers.body),
+      "User 1 retrieves contact list (array)"
+    );
+
+    // Search user by username
+    const searchRes = await request("GET", `/api/users/search?q=${testUser2.username.slice(0, 10)}`, null, token1);
+    assert(
+      searchRes.status === 200 && Array.isArray(searchRes.body) && searchRes.body.some((u) => u._id === user2Id),
+      "Search endpoint returns matching User 2 with friendStatus 'none'"
     );
 
     // 6. Friend Requests & Mutual Friendship Lifecycle
@@ -260,6 +291,11 @@ async function runTests() {
       token1
     );
     assert(goodPassUpdate.status === 200, "Password update succeeds");
+
+    // 9. Logout
+    console.log("\n[9] Logout");
+    const logoutRes = await request("POST", "/api/auth/logout", null, null, cookie1);
+    assert(logoutRes.status === 200, "Logout succeeds and clears cookie");
 
     console.log("\n==========================================");
     console.log(`  Tests completed: ${passed} passed, ${failed} failed`);

@@ -19,8 +19,12 @@ router.get("/", protect, async (req, res) => {
       FriendRequest.find({ $or: [{ sender: req.userId }, { receiver: req.userId }] }),
     ]);
 
+    if (!me) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     const relevantUserIds = new Set([
-      ...me.friends.map((id) => id.toString()),
+      ...(me.friends || []).map((id) => id.toString()),
       ...pendingRequests.map((r) => r.sender.toString()),
       ...pendingRequests.map((r) => r.receiver.toString()),
     ]);
@@ -33,7 +37,7 @@ router.get("/", protect, async (req, res) => {
     const result = users.map((u) => {
       const uid = u._id.toString();
 
-      if (me.friends.some((id) => id.toString() === uid)) {
+      if ((me.friends || []).some((id) => id.toString() === uid)) {
         return { ...u.toObject(), friendStatus: "friends" };
       }
 
@@ -67,19 +71,25 @@ router.get("/search", protect, async (req, res) => {
       return res.json([]);
     }
 
+    const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     const [me, users, pendingRequests] = await Promise.all([
       User.findById(req.userId).select("friends"),
       User.find({
         _id: { $ne: req.userId },
         $or: [
-          { username: { $regex: q, $options: "i" } },
-          { email: { $regex: q, $options: "i" } },
+          { username: { $regex: escapedQ, $options: "i" } },
+          { email: { $regex: escapedQ, $options: "i" } },
         ],
       })
         .select("username avatarColor avatarUrl")
         .limit(25),
       FriendRequest.find({ $or: [{ sender: req.userId }, { receiver: req.userId }] }),
     ]);
+
+    if (!me) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
     const result = users.map((u) => {
       const uid = u._id.toString();
