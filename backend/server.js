@@ -197,6 +197,15 @@ app.use((err, req, res, next) => {
 initSocket(io);
 
 const PORT = process.env.PORT || 5000;
+
+server.on("error", (err) => {
+  logger.error("Server listen error:", err);
+  if (err.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use. Please free port ${PORT} or set a different PORT in .env.`);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, "0.0.0.0", () => {
   logger.info(`Server running on port ${PORT} (${process.env.NODE_ENV || "development"})`);
   logger.info(`Allowing requests from: ${allowedOrigins.join(", ")}`);
