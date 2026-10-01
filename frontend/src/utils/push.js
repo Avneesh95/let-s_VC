@@ -21,15 +21,12 @@ let serverConfiguredCache = null;
 export async function isPushConfiguredOnServer() {
   if (serverConfiguredCache !== null) return serverConfiguredCache;
   try {
-    await api.get("/push/vapid-public-key");
-    serverConfiguredCache = true;
+    const { data } = await api.get("/push/vapid-public-key");
+    serverConfiguredCache = Boolean(data && data.publicKey);
   } catch (err) {
-    // Any other failure (network hiccup, server down) shouldn't be cached
-    // as "not configured" — only a clean 503 from this specific endpoint
-    // means push really is disabled server-side.
-    serverConfiguredCache = err.response?.status === 503 ? false : null;
+    serverConfiguredCache = false;
   }
-  return serverConfiguredCache ?? true; // unknown → don't block the UI on a transient error
+  return serverConfiguredCache ?? false;
 }
 
 // Push subscription keys are base64url-encoded; the browser API wants raw bytes.
@@ -73,6 +70,10 @@ export async function enablePush() {
     ({ data } = await api.get("/push/vapid-public-key"));
   } catch (err) {
     throw new Error(apiErrorMessage(err, "Couldn't reach the server to set up notifications"));
+  }
+
+  if (!data?.publicKey) {
+    throw new Error("Push notifications are not configured on this server");
   }
 
   const registration = await navigator.serviceWorker.ready;
