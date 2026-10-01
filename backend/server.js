@@ -48,20 +48,37 @@ const server = http.createServer(app);
 // Falls back to the default local frontend URL if CLIENT_URL isn't set,
 // so local dev works even if the .env file wasn't picked up correctly.
 // CLIENT_URL can be a single origin or a comma-separated list, e.g.
-// "http://localhost:5173,http://192.168.1.42:5173" — handy when testing
-// from a phone on the same network alongside your desktop browser.
+// "http://localhost:5173,https://muhdikhai.netlify.app"
 const configuredOrigins = process.env.CLIENT_URL
   ? process.env.CLIENT_URL.split(",").map((url) => url.trim())
   : ["http://localhost:5173", "http://127.0.0.1:5173"];
-const localOrigins = process.env.NODE_ENV === "production"
-  ? []
-  : ["http://localhost:5173", "http://127.0.0.1:5173"];
+const localOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://muhdikhai.netlify.app",
+];
 const allowedOrigins = [...new Set([...configuredOrigins, ...localOrigins].filter(Boolean))];
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // Allow non-browser clients (curl, mobile apps, tests)
+  if (allowedOrigins.includes(origin)) return true;
+  try {
+    const url = new URL(origin);
+    // Allow any Netlify deploy subdomain (*.netlify.app) and localhost
+    if (
+      url.hostname.endsWith(".netlify.app") ||
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1"
+    ) {
+      return true;
+    }
+  } catch {}
+  return false;
+};
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. curl, mobile apps) and any listed origin
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       const err = new Error("Not allowed by CORS");
@@ -76,25 +93,20 @@ const corsOptions = {
 };
 
 const io = new Server(server, {
-  cors: { origin: allowedOrigins, credentials: true },
+  cors: {
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        callback(null, origin || true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  },
   // Matches the client's transports restriction — see the comment in
   // frontend/src/context/SocketContext.jsx for why WebSocket upgrade was
   // disabled in favor of staying on HTTP long-polling.
   transports: ["polling"],
-  // Tolerant of brief WiFi drops (e.g. phone screen lock, laptop sleep) so
-  // presence doesn't flicker offline/online from a momentary blip, but not
-  // so tolerant that an actually-ended call sits there looking "connected"
-  // for ages. The previous values here (60000/25000) meant a hard drop —
-  // app force-closed, signal lost, battery died — could take up to ~85s
-  // (pingInterval + pingTimeout) for the server to notice and tell the
-  // other side the call had ended; that delay is exactly what showed up as
-  // "disconnecting takes time" on 1-1 calls. 10s/20s still rides out a
-  // normal screen-lock or a few seconds of dead wifi (reconnection is
-  // automatic — see SocketContext.jsx), while capping the worst case at
-  // ~30s. The graceful-exit path (closing the tab, hitting Leave) is
-  // already instant via the explicit "leave-room" emit — see the
-  // `pagehide` handler in GroupCall.jsx — so this timeout only matters for
-  // genuinely abrupt drops.
   pingTimeout: 20000,
   pingInterval: 10000,
 });
