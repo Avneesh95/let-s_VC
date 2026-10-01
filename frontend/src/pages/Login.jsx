@@ -249,7 +249,7 @@ export default function Login() {
 
       {/* Footer copyright */}
       <div className="text-center text-xs text-ink/35 py-3 hidden md:block">
-        Peerly &copy; {new Date().getFullYear()} &bull; Video &amp; Chat
+        Peerly &copy; {new Date().getFullYear()} &bull; Created by Avneesh &bull; Video &amp; Chat
       </div>
     </div>
   );

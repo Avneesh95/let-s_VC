@@ -1,4 +1,5 @@
-# ChatApp — MERN + Socket.IO + WebRTC
+# Peerly — MERN + Socket.IO + WebRTC
+> **Created by Avneesh**
 
 A real-time chat and video calling app. Built to be **explainable in an interview**: every
 feature maps to one clear technical decision, and the architecture was deliberately
