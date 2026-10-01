@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 import { useCallInvite } from "../context/CallInviteContext";
+import { getCallLayoutConfig } from "../utils/callLayout";
 import {
   Mic,
   MicOff,
@@ -21,91 +22,17 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
 import { startRingback, stopRingtone, playMessageTone } from "../utils/ringtone";
+import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile } from "../utils/callMedia";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
 const MAX_PARTICIPANTS = 6;
 
-// Wraps the floating self-view PiP (used when there's exactly one other
-// participant, i.e. a 1-1-style call) to make it draggable anywhere within
-// the video area — the same "move your own bubble" behavior WhatsApp uses.
-// Uses the Pointer Events API so one set of handlers covers both mouse and
-// touch, rather than maintaining separate mouse/touch listeners.
-function DraggableSelfView({ children, widthClass }) {
-  const elRef = useRef(null);
-  const [pos, setPos] = useState({ top: 16, left: null }); // left resolves to top-right on first measure
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0 });
-
-  useEffect(() => {
-    const el = elRef.current;
-    const parent = el?.parentElement;
-    if (!el || !parent) return;
-    const parentRect = parent.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    setPos({ top: 84, left: parentRect.width - elRect.width - 16 });
-  }, []);
-
-  const clamp = (left, top) => {
-    const el = elRef.current;
-    const parent = el?.parentElement;
-    if (!el || !parent) return { left, top };
-    const parentRect = parent.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    return {
-      left: Math.max(0, Math.min(left, parentRect.width - elRect.width)),
-      top: Math.max(0, Math.min(top, parentRect.height - elRect.height)),
-    };
-  };
-
-  const onPointerDown = (e) => {
-    dragRef.current = {
-      active: true,
-      startX: e.clientX,
-      startY: e.clientY,
-      origLeft: pos.left ?? 0,
-      origTop: pos.top ?? 0,
-    };
-    elRef.current?.setPointerCapture(e.pointerId);
-  };
-
-  const onPointerMove = (e) => {
-    if (!dragRef.current.active) return;
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    setPos(clamp(dragRef.current.origLeft + dx, dragRef.current.origTop + dy));
-  };
-
-  const onPointerUp = (e) => {
-    dragRef.current.active = false;
-    elRef.current?.releasePointerCapture(e.pointerId);
-  };
-
-  return (
-    <div
-      ref={elRef}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      className={`absolute ${widthClass} cursor-grab active:cursor-grabbing touch-none select-none z-20`}
-      style={{ top: pos.top, left: pos.left ?? undefined }}
-    >
-      {children}
-    </div>
-  );
-}
-
-// The floating bubble shown while the call is minimized (back button, or
-// the explicit minimize button). Draggable anywhere on screen like the
-// self-view PiP, but fixed to the viewport rather than a parent element
-// since it needs to float above the whole page. Tapping it restores the
-// full call screen; a small hang-up button lets you end the call directly
-// from the bubble without expanding first.
+// The fixed bubble shown while the call is minimized. Tapping it restores
+// the call; the hang-up button ends it without expanding first.
 function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onHangUp, name, avatarUrl }) {
   const videoRef = useRef(null);
-  const elRef = useRef(null);
-  const [pos, setPos] = useState(null);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0, moved: false });
 
   const attachStream = useCallback(
     (node) => {
@@ -131,61 +58,12 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
     }
   }, [stream, muted]);
 
-  useEffect(() => {
-    const margin = 16;
-    const w = 112;
-    setPos({ left: window.innerWidth - w - margin, top: window.innerHeight - 150 - margin - 84 });
-  }, []);
-
-  const clamp = (left, top) => {
-    const el = elRef.current;
-    if (!el) return { left, top };
-    const rect = el.getBoundingClientRect();
-    return {
-      left: Math.max(0, Math.min(left, window.innerWidth - rect.width)),
-      top: Math.max(0, Math.min(top, window.innerHeight - rect.height)),
-    };
-  };
-
-  const onPointerDown = (e) => {
-    dragRef.current = {
-      active: true,
-      startX: e.clientX,
-      startY: e.clientY,
-      origLeft: pos?.left ?? 0,
-      origTop: pos?.top ?? 0,
-      moved: false,
-    };
-    elRef.current?.setPointerCapture(e.pointerId);
-  };
-
-  const onPointerMove = (e) => {
-    if (!dragRef.current.active) return;
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
-    setPos(clamp(dragRef.current.origLeft + dx, dragRef.current.origTop + dy));
-  };
-
-  const onPointerUp = (e) => {
-    const wasDrag = dragRef.current.moved;
-    dragRef.current.active = false;
-    elRef.current?.releasePointerCapture(e.pointerId);
-    if (!wasDrag) onExpand();
-  };
-
-  if (!pos) return null;
-
   const showAvatar = !stream || cameraOff || !isVideoLoaded;
 
   return (
     <div
-      ref={elRef}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      style={{ top: pos.top, left: pos.left }}
-      className="fixed z-50 w-28 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/80 bg-callbg cursor-grab active:cursor-grabbing touch-none select-none"
+      onClick={onExpand}
+      className="fixed right-4 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-50 w-[28vw] min-w-24 max-w-32 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-2 ring-brand/80 bg-callbg cursor-pointer"
     >
       {stream && (
         <video
@@ -209,7 +87,6 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
         </div>
       )}
       <button
-        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           onHangUp();
@@ -219,7 +96,7 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
       >
         <PhoneOff className="w-3.5 h-3.5" strokeWidth={2} />
       </button>
-      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-sm rounded-full p-1 z-10">
+      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-sm rounded-full p-1 z-10 pointer-events-none">
         <Maximize2 className="w-3 h-3 text-white/80" strokeWidth={2} />
       </div>
     </div>
@@ -486,6 +363,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [connectionQuality, setConnectionQuality] = useState("good");
   // Screen sharing is a desktop-browser feature in practice — iOS Safari
   // doesn't implement getDisplayMedia at all, and Android Chrome's support
   // is unreliable/OS-version-dependent. Feature-detecting here (rather than
@@ -545,6 +423,8 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
   const staleConnectionTimers = useRef(new Map()); // userId -> "still not connected" timeout id
   const reconnectAttemptsLeft = useRef(new Map()); // userId -> automatic retries remaining
   const localStreamRef = useRef(null); // avoids stale closures inside socket handlers
+  const connectionQualityRef = useRef("good");
+  const previousStatsRef = useRef(new Map());
   // Mirrors `socket` for the same reason as localStreamRef above: the
   // unmount-cleanup effect below intentionally has an empty dependency
   // array (it must run its cleanup exactly once, on real unmount) — but
@@ -563,6 +443,10 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
+
+  useEffect(() => {
+    connectionQualityRef.current = connectionQuality;
+  }, [connectionQuality]);
 
   useEffect(() => {
     socketRef.current = socket;
@@ -874,6 +758,82 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
     createPeerConnectionRef.current = createPeerConnection;
   }, [createPeerConnection]);
 
+  // Adapt sender encoding without renegotiating the peer connection. Audio is
+  // left untouched so video yields bandwidth before the conversation does.
+  useEffect(() => {
+    if (!localStream) return undefined;
+    let cancelled = false;
+
+    const applyQualityProfile = (quality) => {
+      const profile = getQualityProfile(quality);
+      peerConnections.current.forEach((pc) => {
+        const sender = pc.getSenders().find((item) => item.track?.kind === "video");
+        if (!sender) return;
+        try {
+          const params = sender.getParameters();
+          if (!params.encodings?.length) params.encodings = [{}];
+          params.encodings[0].maxBitrate = profile.maxBitrate;
+          params.encodings[0].scaleResolutionDownBy = profile.scaleResolutionDownBy;
+          params.encodings[0].maxFramerate = profile.maxFramerate;
+          sender.setParameters(params).catch(() => {});
+        } catch {
+          // Older browsers can reject optional sender parameters.
+        }
+      });
+    };
+
+    const sampleStats = async () => {
+      const samples = [];
+      for (const [remoteUserId, pc] of peerConnections.current) {
+        if (pc.connectionState === "closed") continue;
+        try {
+          const report = await pc.getStats();
+          let packetLoss = 0;
+          let rtt = 0;
+          let jitter = 0;
+          report.forEach((stat) => {
+            if (stat.type === "remote-inbound-rtp" && stat.kind === "video") {
+              const previous = previousStatsRef.current.get(remoteUserId);
+              if (typeof stat.fractionLost === "number") {
+                packetLoss = stat.fractionLost * 100;
+              } else {
+                const packets = (stat.packetsLost || 0) + (stat.packetsReceived || 0);
+                const lost = stat.packetsLost || 0;
+                if (previous && packets > previous.packets) {
+                  packetLoss = (Math.max(0, lost - previous.lost) / (packets - previous.packets)) * 100;
+                }
+                previousStatsRef.current.set(remoteUserId, { packets, lost });
+              }
+              rtt = Math.max(rtt, (stat.roundTripTime || 0) * 1000);
+            }
+            if (stat.type === "inbound-rtp" && stat.kind === "audio") {
+              jitter = Math.max(jitter, (stat.jitter || 0) * 1000);
+            }
+          });
+          samples.push(classifyConnectionQuality({ packetLoss, rtt, jitter }));
+        } catch {
+          // Stats are optional and may be unavailable during teardown.
+        }
+      }
+
+      if (cancelled || samples.length === 0) return;
+      const nextQuality = samples.includes("poor") ? "poor" : samples.includes("medium") ? "medium" : "good";
+      if (nextQuality !== connectionQualityRef.current) {
+        connectionQualityRef.current = nextQuality;
+        setConnectionQuality(nextQuality);
+        applyQualityProfile(nextQuality);
+      }
+    };
+
+    applyQualityProfile(connectionQualityRef.current);
+    const timer = setInterval(sampleStats, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      previousStatsRef.current.clear();
+    };
+  }, [localStream]);
+
   // Get camera/mic, then announce ourselves to the room
   useEffect(() => {
     if (!user || !socket) return; // wait for guest login (or real login) to finish
@@ -897,16 +857,17 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         // and then letting each peer connection's encoder scale down
         // (via scaleResolutionDownBy) for larger rooms is cheaper than
         // re-calling getUserMedia at different resolutions per room size.
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-            sampleRate: 48000,
-          },
-        });
+        let stream;
+        let lastMediaError;
+        for (const constraints of getMediaConstraintCandidates()) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+          } catch (mediaError) {
+            lastMediaError = mediaError;
+          }
+        }
+        if (!stream) throw lastMediaError || new Error("No compatible camera or microphone");
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -926,7 +887,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, user, socket]);
+  }, [roomCode, user?.id, user?.username, socket]);
 
   // Room signaling
   useEffect(() => {
@@ -1298,7 +1259,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       // of accepting it.
       const acquire = async (constraints) => {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { ...constraints, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: { ...constraints, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
           audio: false,
         });
         const track = stream.getVideoTracks()[0];
@@ -1341,7 +1302,12 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           }
 
           newVideoStream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: nextDevice.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            video: {
+              deviceId: { exact: nextDevice.deviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30, max: 30 },
+            },
             audio: false,
           });
         }
@@ -1369,7 +1335,12 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       // camera-less until they leave and rejoin was the old behavior.
       try {
         const restoredStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, max: 30 },
+          },
           audio: false,
         });
         const restoredTrack = restoredStream.getVideoTracks()[0];
@@ -1468,6 +1439,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
 
   const otherParticipants = Object.entries(participants); // [userId, {username, stream}][]
   const participantCount = otherParticipants.length + 1; // +1 for self
+  const callLayout = getCallLayoutConfig(participantCount);
 
   if (!user) {
     return (
@@ -1557,6 +1529,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
 
   return (
     <div
+      data-layout={callLayout.mode}
       className="h-dvh md:h-screen bg-callbg text-white relative overflow-hidden"
       onPointerDown={bumpControlsVisible}
       onPointerMove={bumpControlsVisible}
@@ -1606,35 +1579,10 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         )}
 
         {participantCount === 2 && (
-          // 2 people: Side-by-side on laptop/desktop, Full-Screen + PiP on mobile
-          <div className="h-full w-full">
-            {/* Desktop / Laptop (md+) 2-column grid */}
-            <div className="hidden md:flex h-full w-full items-center justify-center p-4 md:p-6 pt-20 md:pt-22 pb-24 md:pb-26">
-              <div className="grid grid-cols-2 gap-4 w-full h-full max-w-6xl max-h-[82vh]">
-                <VideoTile
-                  stream={localStream}
-                  label={`${user.username} (You)`}
-                  muted
-                  fillHeight
-                  cameraOff={!isCameraOn}
-                  avatarUrl={user.avatarUrl}
-                  avatarName={user.username}
-                  mirrored={facingMode === "user" && !isScreenSharing}
-                />
-                <VideoTile
-                  stream={otherParticipants[0][1].stream}
-                  label={otherParticipants[0][1].username}
-                  connState={otherParticipants[0][1].connState}
-                  cameraOff={otherParticipants[0][1].remoteCameraOff}
-                  onRetry={() => manualRetry(otherParticipants[0][0])}
-                  fillHeight
-                />
-              </div>
-            </div>
-
-            {/* Mobile (<md) Full-Screen Remote + Draggable PiP */}
-            <div className="md:hidden h-full w-full relative">
-              <div className="w-full h-full overflow-hidden">
+          <div className="h-full w-full relative">
+            {/* Desktop: Zoom-style 1:1 meeting layout with the remote user on the main stage and the local user as a proper tile in the grid. */}
+            <div className="hidden md:flex h-full w-full flex-col gap-3 p-3 md:p-4 pt-18 md:pt-22 pb-22 md:pb-26">
+              <div className="flex-1 min-h-0">
                 <VideoTile
                   stream={otherParticipants[0][1].stream}
                   label={otherParticipants[0][1].username}
@@ -1644,20 +1592,46 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                   fullSize
                 />
               </div>
-              <DraggableSelfView widthClass="w-28 sm:w-32">
-                <div className="rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/30 bg-callbg aspect-[2/3]">
-                  <VideoTile
-                    stream={localStream}
-                    label={`${user.username} (You)`}
-                    muted
-                    cameraOff={!isCameraOn}
-                    avatarUrl={user.avatarUrl}
-                    avatarName={user.username}
-                    mirrored={facingMode === "user" && !isScreenSharing}
-                    fillHeight
-                  />
-                </div>
-              </DraggableSelfView>
+
+              <div className="w-full max-w-[420px] self-center h-56 xl:h-64 2xl:h-72">
+                <VideoTile
+                  stream={localStream}
+                  label={`${user.username} (You)`}
+                  muted
+                  cameraOff={!isCameraOn}
+                  avatarUrl={user.avatarUrl}
+                  avatarName={user.username}
+                  mirrored={facingMode === "user" && !isScreenSharing}
+                  fillHeight
+                />
+              </div>
+            </div>
+
+            {/* Mobile: WhatsApp-style 1:1 call with a fixed, non-draggable self preview pinned to the lower-right corner. */}
+            <div className="md:hidden absolute inset-0">
+              <VideoTile
+                stream={otherParticipants[0][1].stream}
+                label={otherParticipants[0][1].username}
+                connState={otherParticipants[0][1].connState}
+                cameraOff={otherParticipants[0][1].remoteCameraOff}
+                onRetry={() => manualRetry(otherParticipants[0][0])}
+                fullSize
+              />
+            </div>
+
+            <div className="md:hidden fixed right-4 z-30 w-[28vw] min-w-[96px] max-w-[140px]" style={{ bottom: "calc(104px + env(safe-area-inset-bottom))" }}>
+              <div className="aspect-[3/4] overflow-hidden rounded-2xl shadow-2xl ring-2 ring-white/25 bg-callbg">
+                <VideoTile
+                  stream={localStream}
+                  label={`${user.username} (You)`}
+                  muted
+                  cameraOff={!isCameraOn}
+                  avatarUrl={user.avatarUrl}
+                  avatarName={user.username}
+                  mirrored={facingMode === "user" && !isScreenSharing}
+                  fillHeight
+                />
+              </div>
             </div>
           </div>
         )}
@@ -1922,6 +1896,15 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           )}
         </div>
         <div className="flex gap-1.5 md:gap-2 shrink-0">
+          <span
+            className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium ${
+              connectionQuality === "poor" ? "text-danger" : connectionQuality === "medium" ? "text-gold" : "text-emerald-300"
+            }`}
+            title={`Connection quality: ${connectionQuality}`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-current" />
+            {connectionQuality === "poor" ? "Poor" : connectionQuality === "medium" ? "Fair" : "Good"}
+          </span>
           {!isDirectCall && (
             <button
               onClick={copyInviteLink}

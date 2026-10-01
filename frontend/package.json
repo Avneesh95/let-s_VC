@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/utils/authValidation.test.js src/utils/callLayout.test.js src/utils/callMedia.test.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
