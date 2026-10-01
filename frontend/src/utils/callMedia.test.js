@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyConnectionQuality, getQualityProfile } from './callMedia.js';
+import { classifyConnectionQuality, getQualityProfile, getVideoFitMode } from './callMedia.js';
 
 test('quality classification prioritizes severe loss and latency', () => {
   assert.equal(classifyConnectionQuality({ packetLoss: 0.5, rtt: 80, jitter: 8 }), 'good');
@@ -16,4 +16,11 @@ test('quality profiles reduce video load without changing audio', () => {
   });
   assert.ok(getQualityProfile('poor').maxBitrate < getQualityProfile('medium').maxBitrate);
   assert.ok(getQualityProfile('poor').maxFramerate < getQualityProfile('good').maxFramerate);
+});
+
+test('video fit mode preserves portrait frames and screen shares', () => {
+  assert.equal(getVideoFitMode(9 / 16), 'portrait');
+  assert.equal(getVideoFitMode(16 / 9), 'cover');
+  assert.equal(getVideoFitMode(16 / 9, true), 'contain');
+  assert.equal(getVideoFitMode(0), 'cover');
 });

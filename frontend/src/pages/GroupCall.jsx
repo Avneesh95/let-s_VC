@@ -22,7 +22,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
 import { startRingback, stopRingtone, playMessageTone } from "../utils/ringtone";
-import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile } from "../utils/callMedia";
+import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile, getVideoFitMode } from "../utils/callMedia";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
@@ -33,6 +33,15 @@ const MAX_PARTICIPANTS = 6;
 function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onHangUp, name, avatarUrl }) {
   const videoRef = useRef(null);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [videoAspectRatio, setVideoAspectRatio] = useState(null);
+
+  const updateVideoAspectRatio = useCallback((node) => {
+    if (!node || !node.videoWidth || !node.videoHeight) return;
+    const nextRatio = node.videoWidth / node.videoHeight;
+    setVideoAspectRatio((currentRatio) =>
+      currentRatio && Math.abs(currentRatio - nextRatio) < 0.01 ? currentRatio : nextRatio
+    );
+  }, []);
 
   const attachStream = useCallback(
     (node) => {
@@ -42,10 +51,11 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
         if (node.srcObject !== stream) {
           node.srcObject = stream;
         }
+        updateVideoAspectRatio(node);
         node.play?.().catch(() => {});
       }
     },
-    [stream, muted]
+    [stream, muted, updateVideoAspectRatio]
   );
 
   useEffect(() => {
@@ -54,11 +64,14 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
       if (videoRef.current.srcObject !== stream) {
         videoRef.current.srcObject = stream;
       }
+      updateVideoAspectRatio(videoRef.current);
       videoRef.current.play?.().catch(() => {});
     }
-  }, [stream, muted]);
+  }, [stream, muted, updateVideoAspectRatio]);
 
   const showAvatar = !stream || cameraOff || !isVideoLoaded;
+  const isScreenShare = stream?.getVideoTracks?.()[0]?.label?.toLowerCase().includes("screen");
+  const videoFitMode = getVideoFitMode(videoAspectRatio, isScreenShare);
 
   return (
     <div
@@ -73,7 +86,9 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
           muted={muted}
           onLoadedData={() => setIsVideoLoaded(true)}
           onPlaying={() => setIsVideoLoaded(true)}
-          className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""} ${
+          onLoadedMetadata={(event) => updateVideoAspectRatio(event.currentTarget)}
+          onResize={(event) => updateVideoAspectRatio(event.currentTarget)}
+          className={`w-full h-full ${videoFitMode === "contain" ? "object-contain" : videoFitMode === "portrait" ? "object-cover md:object-contain" : "object-cover"} ${mirrored ? "-scale-x-100" : ""} ${
             cameraOff || !isVideoLoaded ? "invisible" : ""
           }`}
         />
@@ -91,8 +106,9 @@ function MinimizedCallBubble({ stream, muted, cameraOff, mirrored, onExpand, onH
           e.stopPropagation();
           onHangUp();
         }}
+        aria-label="Hang up minimized call"
         title="Hang up"
-        className="absolute bottom-1.5 right-1.5 bg-danger hover:opacity-90 transition-opacity rounded-full p-1.5 shadow-lg z-10"
+        className="absolute bottom-1.5 right-1.5 min-w-10 min-h-10 bg-danger hover:opacity-90 transition-opacity rounded-full p-1.5 shadow-lg z-10"
       >
         <PhoneOff className="w-3.5 h-3.5" strokeWidth={2} />
       </button>
@@ -149,6 +165,18 @@ function VideoTile({
   className = "",
 }) {
   const videoRef = useRef(null);
+  const [videoAspectRatio, setVideoAspectRatio] = useState(null);
+
+  const updateVideoAspectRatio = useCallback((node) => {
+    if (!node) return;
+    const width = node.videoWidth;
+    const height = node.videoHeight;
+    if (!width || !height) return;
+    const nextRatio = width / height;
+    setVideoAspectRatio((currentRatio) =>
+      currentRatio && Math.abs(currentRatio - nextRatio) < 0.01 ? currentRatio : nextRatio
+    );
+  }, []);
 
   const attachStream = useCallback(
     (node) => {
@@ -158,10 +186,11 @@ function VideoTile({
         if (node.srcObject !== stream) {
           node.srcObject = stream;
         }
+        updateVideoAspectRatio(node);
         node.play?.().catch(() => {});
       }
     },
-    [stream, muted]
+    [stream, muted, updateVideoAspectRatio]
   );
 
   useEffect(() => {
@@ -170,12 +199,15 @@ function VideoTile({
       if (videoRef.current.srcObject !== stream) {
         videoRef.current.srcObject = stream;
       }
+      updateVideoAspectRatio(videoRef.current);
       videoRef.current.play?.().catch(() => {});
     }
-  }, [stream, muted]);
+  }, [stream, muted, updateVideoAspectRatio]);
 
   const showFailed = !stream && connState === "failed";
   const statusText = connState === "reconnecting" ? "Reconnecting…" : "Connecting…";
+  const isScreenShare = stream?.getVideoTracks?.()[0]?.label?.toLowerCase().includes("screen");
+  const videoFitMode = getVideoFitMode(videoAspectRatio, isScreenShare);
 
   return (
     <div
@@ -196,7 +228,15 @@ function VideoTile({
           autoPlay
           playsInline
           muted={muted}
-          className={`w-full h-full object-cover object-center ${mirrored ? "-scale-x-100" : ""}`}
+          onLoadedMetadata={(event) => updateVideoAspectRatio(event.currentTarget)}
+          onResize={(event) => updateVideoAspectRatio(event.currentTarget)}
+          className={`w-full h-full ${
+            videoFitMode === "contain"
+              ? "object-contain"
+              : videoFitMode === "portrait"
+              ? "object-cover md:object-contain"
+              : "object-cover object-center"
+          } ${mirrored ? "-scale-x-100" : ""}`}
         />
       ) : showFailed ? (
         <div className="flex flex-col items-center gap-2 px-3 text-center">
@@ -422,6 +462,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
   const outgoingFlushTimers = useRef(new Map()); // userId -> flush timeout id
   const staleConnectionTimers = useRef(new Map()); // userId -> "still not connected" timeout id
   const reconnectAttemptsLeft = useRef(new Map()); // userId -> automatic retries remaining
+  const reconnectingPeers = useRef(new Set());
   const localStreamRef = useRef(null); // avoids stale closures inside socket handlers
   const connectionQualityRef = useRef("good");
   const previousStatsRef = useRef(new Map());
@@ -498,7 +539,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         if (!pc) return;
         const state = pc.connectionState || pc.iceConnectionState;
         if (state === "connected" || state === "completed") return;
-        handleStuckConnection(remoteUserId);
+        handleStuckConnectionRef.current(remoteUserId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, 12000);
       staleConnectionTimers.current.set(remoteUserId, timer);
@@ -534,6 +575,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
 
   const handleStuckConnection = useCallback(
     (remoteUserId) => {
+      if (reconnectingPeers.current.has(remoteUserId)) return;
       setParticipants((prev) =>
         prev[remoteUserId]
           ? { ...prev, [remoteUserId]: { ...prev[remoteUserId], connState: "reconnecting" } }
@@ -542,8 +584,9 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       const isInitiator = user?.id && String(user.id) < String(remoteUserId);
       const attemptsLeft = reconnectAttemptsLeft.current.get(remoteUserId) ?? 2;
       if (attemptsLeft > 0 && isInitiator) {
+        reconnectingPeers.current.add(remoteUserId);
         reconnectAttemptsLeft.current.set(remoteUserId, attemptsLeft - 1);
-        reconnectToPeer(remoteUserId);
+        reconnectToPeer(remoteUserId).finally(() => reconnectingPeers.current.delete(remoteUserId));
       } else if (attemptsLeft <= 0) {
         setParticipants((prev) =>
           prev[remoteUserId]
@@ -1007,6 +1050,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       outgoingFlushTimers.current.delete(userId);
       clearStaleConnectionTimer(userId);
       reconnectAttemptsLeft.current.delete(userId);
+      reconnectingPeers.current.delete(userId);
       setParticipants((prev) => {
         const next = { ...prev };
         delete next[userId];
@@ -1107,6 +1151,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       staleConnectionTimers.current.forEach((t) => clearTimeout(t));
       staleConnectionTimers.current.clear();
       reconnectAttemptsLeft.current.clear();
+      reconnectingPeers.current.clear();
       setParticipants({});
       socket.emit("join-room", { roomCode, username: user.username });
     };
@@ -1137,7 +1182,10 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
       staleConnectionTimers.current.forEach((t) => clearTimeout(t));
       staleConnectionTimers.current.clear();
       reconnectAttemptsLeft.current.clear();
+      reconnectingPeers.current.clear();
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      cameraTrackRef.current?.stop();
+      cameraTrackRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1908,6 +1956,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           {!isDirectCall && (
             <button
               onClick={copyInviteLink}
+              aria-label="Copy room link"
               title="Copy room link"
               className="text-xs md:text-sm bg-white/10 hover:bg-white/20 transition-colors rounded-lg px-2.5 md:px-3 py-1.5 flex items-center gap-1.5"
             >
@@ -1917,6 +1966,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           )}
           <button
             onClick={() => navigate(user ? "/chat" : "/")}
+            aria-label="Minimize call"
             title="Minimize call"
             className="text-xs md:text-sm bg-white/10 hover:bg-white/20 active:scale-95 transition-all rounded-xl p-2 md:px-3 md:py-2 flex items-center gap-1.5 text-white/90 font-medium cursor-pointer"
           >
@@ -1924,6 +1974,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           </button>
           <button
             onClick={leaveRoom}
+            aria-label="Leave call"
             className="text-xs md:text-sm bg-danger hover:opacity-90 active:scale-95 transition-all text-white font-bold rounded-xl px-3.5 py-2 shadow-sm cursor-pointer"
           >
             Leave
@@ -2005,8 +2056,9 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           {/* Mic Toggle */}
           <button
             onClick={toggleMic}
+            aria-label={isMicOn ? "Mute microphone" : "Unmute microphone"}
             title={isMicOn ? "Mute mic (M)" : "Unmute mic (M)"}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
+            className={`w-11 h-11 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
               isMicOn
                 ? "bg-white/10 hover:bg-white/20 text-white shadow-xs"
                 : "bg-danger text-white shadow-lg shadow-danger/30 ring-2 ring-danger/30"
@@ -2018,8 +2070,9 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           {/* Camera Toggle */}
           <button
             onClick={toggleCamera}
+            aria-label={isCameraOn ? "Turn camera off" : "Turn camera on"}
             title={isCameraOn ? "Turn off camera (V)" : "Turn on camera (V)"}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
+            className={`w-11 h-11 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
               isCameraOn
                 ? "bg-white/10 hover:bg-white/20 text-white shadow-xs"
                 : "bg-danger text-white shadow-lg shadow-danger/30 ring-2 ring-danger/30"
@@ -2031,8 +2084,9 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           {/* Switch Camera (Mobile) */}
           <button
             onClick={switchCamera}
+            aria-label="Switch camera"
             title="Switch camera front/back"
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-110 hover:rotate-180 active:scale-95"
+            className="w-11 h-11 sm:w-11 sm:h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-110 hover:rotate-180 active:scale-95"
           >
             <RefreshCw className="w-4.5 h-4.5" strokeWidth={1.8} />
           </button>
@@ -2041,8 +2095,9 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           {screenShareSupported && (
             <button
               onClick={toggleScreenShare}
+              aria-label={isScreenSharing ? "Stop screen sharing" : "Share screen"}
               title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
-              className={`hidden md:flex w-10 h-10 sm:w-11 sm:h-11 rounded-full items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
+              className={`hidden md:flex w-11 h-11 sm:w-11 sm:h-11 rounded-full items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
                 isScreenSharing
                   ? "bg-gold text-callbg shadow-neon ring-2 ring-gold/40"
                   : "bg-white/10 hover:bg-white/20 text-white"
@@ -2055,8 +2110,9 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           {/* In-Call Chat Button */}
           <button
             onClick={() => setChatOpen((v) => !v)}
+            aria-label={chatOpen ? "Close in-call chat" : "Open in-call chat"}
             title="Toggle in-room chat"
-            className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
+            className={`relative w-11 h-11 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 ${
               chatOpen
                 ? "bg-brand text-white shadow-neon-brand ring-2 ring-brand/40"
                 : "bg-white/10 hover:bg-white/20 text-white"
@@ -2074,6 +2130,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
           <div className="h-6 w-[1px] bg-white/15 mx-0.5" />
           <button
             onClick={leaveRoom}
+            aria-label="End call"
             title="Leave / End call"
             className="w-12 h-10 sm:w-14 sm:h-11 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-95 transition-all duration-200 flex items-center justify-center text-white shadow-xl shadow-red-600/30 ring-2 ring-red-500/20 cursor-pointer hover:scale-105"
           >

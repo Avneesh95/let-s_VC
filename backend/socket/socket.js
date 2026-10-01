@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const Message = require("../models/Message");
 const User = require("../models/User");
 const { webpush, pushEnabled } = require("../config/webpush");
@@ -45,8 +46,24 @@ function notifyUser(userId, event, payload = {}) {
 // Shared by messaging, calling, and room invites — the friends-only rule
 // is the same authorization check applied at every entry point that needs it.
 async function areFriends(userId, otherUserId) {
+  if (!mongoose.isValidObjectId(otherUserId)) return false;
   const me = await User.findById(userId).select("friends");
   return !!me?.friends.some((id) => id.toString() === otherUserId);
+}
+
+function isValidRoomCode(roomCode) {
+  return typeof roomCode === "string" && /^[A-Z0-9]{4,20}$/.test(roomCode);
+}
+
+function getRoomPeerSocket(roomCode, userId) {
+  return rooms.get(roomCode)?.get(userId);
+}
+
+function canRelayRoomSignal(socket, targetUserId) {
+  const roomCode = socket.currentRoom;
+  const sender = getRoomPeerSocket(roomCode, socket.userId);
+  const target = getRoomPeerSocket(roomCode, targetUserId);
+  return !!roomCode && sender?.socketId === socket.id && !!target;
 }
 
 // Actually delivers a push payload to every device a user has subscribed
@@ -214,7 +231,7 @@ const ROOM_LEAVE_GRACE_MS = 8000;
 // falsely booting someone mid-reconnect); a room with only 2 people uses a
 // much shorter one instead, since a real hang-up here should feel instant
 // while still surviving a genuine one-or-two-second network hiccup.
-const DIRECT_CALL_LEAVE_GRACE_MS = 1500;
+const DIRECT_CALL_LEAVE_GRACE_MS = 8000;
 
 function roomLeaveKey(roomCode, userId) {
   return `${roomCode}:${userId}`;
@@ -345,6 +362,10 @@ function initSocket(io) {
     // and hands both people off to the room-joining flow below, which is
     // the same code path group calls use.
     socket.on("call-invite", async ({ to, roomCode, callerNameHint }) => {
+      if (!mongoose.isValidObjectId(to) || !isValidRoomCode(roomCode)) {
+        socket.emit("call-error", { message: "Invalid call details" });
+        return;
+      }
       const isFriend = await areFriends(socket.userId, to);
       if (!isFriend) {
         socket.emit("call-error", { message: "You can only call friends" });
@@ -400,6 +421,10 @@ function initSocket(io) {
     // already in the room; that keeps "who offers to whom" simple and
     // avoids two peers both offering to each other at once (glare).
     socket.on("join-room", ({ roomCode, username }) => {
+      if (!isValidRoomCode(roomCode) || typeof username !== "string" || !username.trim()) {
+        socket.emit("room-error", { message: "Invalid room details" });
+        return;
+      }
       const room = rooms.get(roomCode);
       if (room && room.size >= MAX_ROOM_SIZE) {
         socket.emit("room-error", { message: `Room is full (max ${MAX_ROOM_SIZE} participants)` });
@@ -413,7 +438,7 @@ function initSocket(io) {
 
       socket.currentRoom = roomCode;
       const existingParticipants = getRoomParticipants(roomCode, socket.userId);
-      joinRoom(roomCode, socket.userId, username, socket.id);
+      joinRoom(roomCode, socket.userId, username.trim().slice(0, 40), socket.id);
       socket.join(roomCode);
 
       // Tell the newcomer who's already here — they'll create offers to each
@@ -434,7 +459,8 @@ function initSocket(io) {
     });
 
     socket.on("room-offer", ({ to, offer }) => {
-      const targetSocketId = getSocketId(to);
+      if (!canRelayRoomSignal(socket, to) || !offer || typeof offer !== "object") return;
+      const targetSocketId = getRoomPeerSocket(socket.currentRoom, to)?.socketId;
       if (targetSocketId) {
         // Include the sender's username from the rooms map so the recipient
         // can correctly label the tile even if "user-joined-room" was missed
@@ -449,7 +475,8 @@ function initSocket(io) {
     });
 
     socket.on("room-answer", ({ to, answer }) => {
-      const targetSocketId = getSocketId(to);
+      if (!canRelayRoomSignal(socket, to) || !answer || typeof answer !== "object") return;
+      const targetSocketId = getRoomPeerSocket(socket.currentRoom, to)?.socketId;
       if (targetSocketId) {
         io.to(targetSocketId).emit("room-answer", { from: socket.userId, answer });
       }
@@ -464,8 +491,9 @@ function initSocket(io) {
     // most time-sensitive. Sending them as arrays cuts that burst down
     // dramatically.
     socket.on("room-ice-candidates", ({ to, candidates }) => {
-      const targetSocketId = getSocketId(to);
-      if (targetSocketId && Array.isArray(candidates) && candidates.length) {
+      if (!canRelayRoomSignal(socket, to) || !Array.isArray(candidates) || !candidates.length) return;
+      const targetSocketId = getRoomPeerSocket(socket.currentRoom, to)?.socketId;
+      if (targetSocketId) {
         io.to(targetSocketId).emit("room-ice-candidates", { from: socket.userId, candidates });
       }
     });
@@ -479,6 +507,7 @@ function initSocket(io) {
     socket.on("room-chat-message", ({ roomCode, text }) => {
       if (!text?.trim() || socket.currentRoom !== roomCode) return;
       const room = rooms.get(roomCode);
+      if (room?.get(socket.userId)?.socketId !== socket.id) return;
       const senderInfo = room?.get(socket.userId);
       io.to(roomCode).emit("room-chat-message", {
         senderId: socket.userId,

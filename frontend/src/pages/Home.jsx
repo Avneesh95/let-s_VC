@@ -231,7 +231,7 @@ export default function Home() {
 
       {/* ===================== COMPACT BOTTOM FOOTER ===================== */}
       <footer className="relative z-10 w-full max-w-7xl mx-auto flex flex-row items-center justify-between text-[11px] text-white/40 pt-2 border-t border-white/5 shrink-0">
-        <div>Peerly &copy; {new Date().getFullYear()} &bull; Created by Avneesh &bull; Video &amp; Chat Platform</div>
+        <div>Peerly &copy; {new Date().getFullYear()} &bull; Built by Avneesh &bull; Video &amp; Chat Platform</div>
         <div className="flex items-center gap-4">
           <Link to="/login" className="hover:text-white transition-colors">
             Sign In

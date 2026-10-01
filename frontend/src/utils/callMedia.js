@@ -38,3 +38,9 @@ export function classifyConnectionQuality({ packetLoss = 0, rtt = 0, jitter = 0 
   if (packetLoss >= 3 || rtt >= 250 || jitter >= 40) return "medium";
   return "good";
 }
+
+export function getVideoFitMode(aspectRatio, isScreenShare = false) {
+  if (isScreenShare) return "contain";
+  if (Number.isFinite(aspectRatio) && aspectRatio > 0 && aspectRatio < 1) return "portrait";
+  return "cover";
+}

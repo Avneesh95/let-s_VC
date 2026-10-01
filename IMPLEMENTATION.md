@@ -9,10 +9,11 @@ what's already in `README.md` (features, architecture, interview talking points)
    `<Routes>`) instead of being tied to the `/room/:roomCode` route. Minimizing just
    navigates elsewhere in the app; the call's WebRTC connections, camera, and mic keep
    running, and the small bubble floats above whichever page you're now on.
-2. **Faster 1-1 disconnect detection** — a 2-person room now uses a 1.5s grace window
-   before declaring "call ended" (`DIRECT_CALL_LEAVE_GRACE_MS` in `backend/socket/socket.js`),
-   down from the 8s group-call default. A *voluntary* hang-up (button, closing the tab) was
-   already instant via the `pagehide` → `leave-room` path and is unaffected.
+2. **Mobile-friendly 1-1 reconnect handling** — a 2-person room uses the same 8s grace
+  window as group calls before declaring a dropped socket gone (`DIRECT_CALL_LEAVE_GRACE_MS`
+  in `backend/socket/socket.js`). This lets short Wi-Fi/4G handoffs recover without ending
+  the call. A *voluntary* hang-up (button, closing the tab) still uses `leave-room` and is
+  handled immediately by the client path.
 3. **Online/offline dot in the friends list** — `onlineUsers` was already being passed into
    `Sidebar.jsx` but never rendered; `ChatRow` and `PersonCard` now show it.
 4. **Push notifications for messages, not just calls** — reuses the existing Web Push
@@ -59,8 +60,7 @@ endpoints, static analysis) — there's no browser or phone here to actually pla
 grant camera/mic permission, or receive a push notification. Test these specifically before
 relying on them in production:
 - Minimize a call, confirm the chat list is interactive underneath, then re-expand it
-- Force-close the app mid-call on one device and time how long the other side takes to see
-  "call ended" (should be ~1.5s once Socket.IO's heartbeat notices the drop — see
-  README's "Detecting a dropped call" section for why that heartbeat itself has a floor)
+- Force-close the app mid-call on one device and confirm the other side recovers briefly
+  disconnected calls, while a real hang-up still ends immediately.
 - Enable "Notify me when app is closed" in Settings, fully close the app, and send it a
   message or call from another account

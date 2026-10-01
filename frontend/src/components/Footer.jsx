@@ -12,13 +12,13 @@ export default function Footer({ showCopyright = false, light = false }) {
   return (
     <div className="mt-6 text-center">
       <p className={`text-xs tracking-wide ${base}`}>
-        Peerly <span className={accent}>·</span> Created by <span className={`font-medium ${strong}`}>Avneesh</span>
+        Peerly <span className={accent}>·</span> Built by <span className={`font-medium ${strong}`}>Avneesh</span>
         <span className={dim}> — </span>
         real conversations, real time
       </p>
       {showCopyright && (
         <p className={`text-[11px] mt-1 ${dimmer}`}>
-          © {new Date().getFullYear()} All rights reserved · Created by Avneesh
+          © {new Date().getFullYear()} All rights reserved · Built by Avneesh
         </p>
       )}
     </div>
