@@ -436,7 +436,15 @@ function initSocket(io) {
     socket.on("room-offer", ({ to, offer }) => {
       const targetSocketId = getSocketId(to);
       if (targetSocketId) {
-        io.to(targetSocketId).emit("room-offer", { from: socket.userId, offer });
+        // Include the sender's username from the rooms map so the recipient
+        // can correctly label the tile even if "user-joined-room" was missed
+        // or arrived out-of-order (a real race condition under polling transport).
+        const senderInfo = socket.currentRoom ? rooms.get(socket.currentRoom)?.get(socket.userId) : null;
+        io.to(targetSocketId).emit("room-offer", {
+          from: socket.userId,
+          username: senderInfo?.username || null,
+          offer,
+        });
       }
     });
 

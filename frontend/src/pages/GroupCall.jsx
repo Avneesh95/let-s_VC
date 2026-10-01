@@ -956,12 +956,14 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
     };
 
     const handleUserJoined = ({ userId, username }) => {
-      // Just for the UI list — we don't initiate; they'll send us an offer
+      // Just for the UI list — we don't initiate; they'll send us an offer.
+      // Include connState: "connecting" so VideoTile shows the right spinner
+      // instead of an undefined state that renders as nothing recognizable.
       hadConnectedRef.current = true;
-      setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null } }));
+      setParticipants((prev) => ({ ...prev, [userId]: { username, stream: null, connState: "connecting" } }));
     };
 
-    const handleRoomOffer = async ({ from, offer }) => {
+    const handleRoomOffer = async ({ from, offer, username: offerUsername }) => {
       try {
         let pc = peerConnections.current.get(from);
         // A stale connection can still be sitting in the map: either it's
@@ -986,6 +988,16 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         }
         if (!pc) pc = createPeerConnection(from);
         reconnectAttemptsLeft.current.set(from, 2);
+        hadConnectedRef.current = true;
+        // Ensure a tile is visible even if user-joined-room arrived late or
+        // was lost — we know this peer exists the moment their offer arrives.
+        // Prefer the username from the offer payload (the backend now includes
+        // it from the rooms map); fall back to the userId only as a last resort.
+        setParticipants((prev) =>
+          prev[from]
+            ? prev
+            : { ...prev, [from]: { username: offerUsername || from, stream: null, connState: "connecting" } }
+        );
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         await flushPending(from, pc);
         const answer = await pc.createAnswer();
@@ -1970,7 +1982,7 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
                     {m.username}
                   </span>
                   <span className="text-[10px] text-white/35">
-                    {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {new Date(m.timestamp || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-white/90 break-words break-all break-anywhere leading-relaxed mt-0.5 select-text">
