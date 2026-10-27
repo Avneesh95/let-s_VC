@@ -6,7 +6,6 @@ import {
   Loader2,
   Sparkles,
   MessageSquare,
-  ShieldCheck,
   RefreshCw,
   User,
   Lock,
@@ -15,6 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "../components/ThemeToggle";
 import Logo from "../components/Logo";
+import LobbyPreview from "../components/LobbyPreview";
 import generateRoomCode from "../utils/generateRoomCode";
 
 export default function Home() {
@@ -24,6 +24,7 @@ export default function Home() {
   const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Logged-in accounts go straight to the chat app
   if (user && !user.isGuest) return <Navigate to="/chat" />;
@@ -61,7 +62,7 @@ export default function Home() {
   };
 
   return (
-    <div className="h-dvh max-h-dvh w-full overflow-hidden bg-[#08090C] text-white flex flex-col justify-between selection:bg-brand selection:text-white relative p-4 sm:p-6 lg:px-10 lg:py-6 font-sans">
+    <div className="min-h-dvh w-full overflow-y-auto thin-scrollbar bg-[#08090C] text-white flex flex-col justify-between selection:bg-brand selection:text-white relative p-4 sm:p-6 lg:px-10 lg:py-6 font-sans">
       {/* Background Ambient Glows */}
       <div className="pointer-events-none absolute top-[-8rem] left-1/2 -translate-x-1/2 w-[40rem] h-[25rem] bg-gradient-to-b from-[#F4600F]/20 via-[#FFA733]/10 to-transparent rounded-full blur-[100px]" />
       <div className="pointer-events-none absolute bottom-[-8rem] right-[-5rem] w-[30rem] h-[20rem] bg-[#F4600F]/10 rounded-full blur-[100px]" />
@@ -75,25 +76,25 @@ export default function Home() {
           <ThemeToggle />
           <Link
             to="/login"
-            className="text-xs sm:text-sm font-semibold px-3.5 sm:px-4 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+            className="text-xs sm:text-sm font-semibold min-h-[44px] px-3.5 sm:px-4 py-2.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center"
           >
             Sign In
           </Link>
           <Link
             to="/register"
-            className="text-xs sm:text-sm font-bold px-4 sm:px-5 py-2 rounded-xl bg-gradient-to-r from-[#F4600F] to-[#FFA733] hover:brightness-110 text-white shadow-[0_4px_15px_rgba(244,96,15,0.4)] active:scale-95 transition-all"
+            className="text-xs sm:text-sm font-bold min-h-[44px] px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F4600F] to-[#FFA733] hover:brightness-110 text-white shadow-[0_4px_15px_rgba(244,96,15,0.4)] active:scale-95 transition-all flex items-center"
           >
             Sign Up
           </Link>
         </div>
       </header>
 
-      {/* ===================== HERO MAIN CONTENT (1 SCREEN, NO SCROLL) ===================== */}
-      <main className="relative z-10 w-full max-w-7xl mx-auto flex-1 min-h-0 flex items-center justify-center my-auto py-2 sm:py-4">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-center w-full">
+      {/* ===================== HERO MAIN CONTENT ===================== */}
+      <main className="relative z-10 w-full max-w-7xl mx-auto flex-1 flex items-center justify-center my-auto py-6 sm:py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center w-full">
           {/* LEFT COLUMN: HERO TEXT & VALUE PROPS */}
           <div className="lg:col-span-7 flex flex-col gap-3 sm:gap-4 text-left">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-brand/15 border border-brand/30 text-brand-light shadow-[0_0_15px_rgba(244,96,15,0.2)] w-fit backdrop-blur-md">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-brand/15 border border-brand/30 text-brand-light shadow-[0_0_15px_rgba(244,96,15,0.2)] w-fit backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5 text-gold animate-pulse" />
               <span>Next-Gen WebRTC Video &amp; Real-Time Chat</span>
             </div>
@@ -106,19 +107,19 @@ export default function Home() {
             </h1>
 
             <p className="text-xs sm:text-sm md:text-base text-white/65 leading-relaxed max-w-xl">
-              High-definition mesh group calls up to 6 people, zero-overflow instant messaging,
-              and seamless screen sharing right from your browser.
+              High-definition mesh group calls up to 6 people with responsive WhatsApp-style video grids,
+              active-speaker glows, and zero-install browser calls.
             </p>
 
             {/* Feature Highlights Badges */}
             <div className="flex flex-wrap gap-2.5 pt-1">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-medium text-white/80">
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-medium text-white/80 min-h-[44px]">
                 <Video className="w-3.5 h-3.5 text-brand-light" /> Mesh Calling
               </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-medium text-white/80">
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-medium text-white/80 min-h-[44px]">
                 <MessageSquare className="w-3.5 h-3.5 text-gold" /> Encrypted Chat
               </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-medium text-white/80">
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-medium text-white/80 min-h-[44px]">
                 <Zap className="w-3.5 h-3.5 text-emerald-400" /> Zero Install
               </span>
             </div>
@@ -133,8 +134,8 @@ export default function Home() {
               <div className="relative bg-[#111319]/92 backdrop-blur-2xl border border-white/10 rounded-3xl p-5 sm:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex flex-col gap-4">
                 <div className="flex items-center justify-between pb-3 border-b border-white/10">
                   <div className="flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F4600F] to-[#FFA733] flex items-center justify-center text-white shadow-sm">
-                      <Video className="w-4.5 h-4.5" strokeWidth={2.2} />
+                    <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#F4600F] to-[#FFA733] flex items-center justify-center text-white shadow-sm shrink-0">
+                      <Video className="w-5 h-5" strokeWidth={2.2} />
                     </span>
                     <div>
                       <h2 className="font-display font-bold text-sm sm:text-base text-white">
@@ -143,19 +144,35 @@ export default function Home() {
                       <p className="text-[11px] text-white/50">Enter code or generate one</p>
                     </div>
                   </div>
+
+                  {/* Toggle Preview button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowPreview((v) => !v)}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all font-medium min-h-[36px]"
+                  >
+                    {showPreview ? "Hide Preview" : "Test Camera"}
+                  </button>
                 </div>
 
+                {/* Camera / Mic Preview with device selector (Phase 2 requirement) */}
+                {showPreview && (
+                  <div className="pb-2 border-b border-white/10 animate-fade-in-up">
+                    <LobbyPreview />
+                  </div>
+                )}
+
                 {error && (
-                  <div className="text-xs bg-danger/20 border border-danger/40 text-danger-light rounded-xl px-3 py-2 text-center font-medium">
+                  <div className="text-xs bg-danger/20 border border-danger/40 text-danger-light rounded-xl px-3 py-2.5 text-center font-medium">
                     {error}
                   </div>
                 )}
 
                 <form onSubmit={handleJoin} className="flex flex-col gap-3">
-                  {/* Name Input */}
+                  {/* Name Input with >=16px text-base to prevent iOS zoom & 44px height */}
                   <div className="relative flex items-center">
                     <span className="absolute left-3.5 text-white/40 pointer-events-none">
-                      <User className="w-4 h-4" />
+                      <User className="w-4.5 h-4.5" />
                     </span>
                     <input
                       type="text"
@@ -163,14 +180,14 @@ export default function Home() {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       maxLength={30}
-                      className="w-full bg-white/[0.06] border border-white/10 rounded-xl pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-brand/60 transition-all"
+                      className="w-full min-h-[44px] bg-white/[0.06] border border-white/10 rounded-xl pl-10 pr-3.5 py-2.5 text-base sm:text-sm text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-brand/60 transition-all"
                     />
                   </div>
 
                   {/* Room Code Input + Generate Button */}
                   <div className="relative flex items-center">
                     <span className="absolute left-3.5 text-white/40 pointer-events-none">
-                      <Lock className="w-4 h-4" />
+                      <Lock className="w-4.5 h-4.5" />
                     </span>
                     <input
                       type="text"
@@ -178,47 +195,47 @@ export default function Home() {
                       value={roomCode}
                       onChange={(e) => setRoomCode(e.target.value)}
                       maxLength={6}
-                      className="w-full bg-white/[0.06] border border-white/10 rounded-xl pl-10 pr-20 py-2.5 text-xs sm:text-sm text-white uppercase tracking-wider font-mono placeholder:normal-case placeholder:font-sans placeholder:tracking-normal placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-brand/60 transition-all"
+                      className="w-full min-h-[44px] bg-white/[0.06] border border-white/10 rounded-xl pl-10 pr-20 py-2.5 text-base sm:text-sm text-white uppercase tracking-wider font-mono placeholder:normal-case placeholder:font-sans placeholder:tracking-normal placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-brand/60 transition-all"
                     />
                     <button
                       type="button"
                       onClick={handleGenerateCode}
                       title="Generate new random room code"
-                      className="absolute right-1.5 text-xs font-semibold px-2.5 py-1.2 rounded-lg bg-white/10 hover:bg-white/20 text-gold hover:text-white transition-all flex items-center gap-1 cursor-pointer"
+                      className="absolute right-1.5 min-h-[36px] text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gold hover:text-white transition-all flex items-center gap-1 cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" /> New
                     </button>
                   </div>
 
-                  {/* Submit Button */}
+                  {/* Submit Button (48px+ tap target) */}
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full mt-1 bg-gradient-to-r from-[#F4600F] via-[#FA7B17] to-[#FFA733] hover:brightness-110 active:scale-[0.98] text-white font-bold text-xs sm:text-sm rounded-xl py-3 shadow-[0_6px_20px_rgba(244,96,15,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+                    className="w-full min-h-[48px] mt-1 bg-gradient-to-r from-[#F4600F] via-[#FA7B17] to-[#FFA733] hover:brightness-110 active:scale-[0.98] text-white font-bold text-sm sm:text-base rounded-xl py-3 shadow-[0_6px_20px_rgba(244,96,15,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
                   >
                     {loading ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-4.5 h-4.5 animate-spin" />
                         <span>Joining Room…</span>
                       </>
                     ) : (
                       <>
                         <span>Join Video Call</span>
-                        <ArrowRight className="w-4 h-4" strokeWidth={2.2} />
+                        <ArrowRight className="w-4.5 h-4.5" strokeWidth={2.2} />
                       </>
                     )}
                   </button>
                 </form>
 
                 {/* Account Sign In Switch */}
-                <div className="flex items-center justify-between text-xs text-white/60 bg-white/[0.02] border border-white/5 rounded-xl px-3 py-2">
+                <div className="flex items-center justify-between text-xs text-white/60 bg-white/[0.02] border border-white/5 rounded-xl px-3 py-2.5 min-h-[44px]">
                   <span>Have an account?</span>
                   <div className="flex items-center gap-2 font-medium">
-                    <Link to="/login" className="text-brand-light hover:underline">
+                    <Link to="/login" className="text-brand-light hover:underline py-1">
                       Log in
                     </Link>
                     <span className="text-white/20">&bull;</span>
-                    <Link to="/register" className="text-white hover:underline">
+                    <Link to="/register" className="text-white hover:underline py-1">
                       Register
                     </Link>
                   </div>
@@ -230,13 +247,13 @@ export default function Home() {
       </main>
 
       {/* ===================== COMPACT BOTTOM FOOTER ===================== */}
-      <footer className="relative z-10 w-full max-w-7xl mx-auto flex flex-row items-center justify-between text-[11px] text-white/40 pt-2 border-t border-white/5 shrink-0">
-        <div>Peerly &copy; {new Date().getFullYear()} &bull; Built by Avneesh &bull; Video &amp; Chat Platform</div>
+      <footer className="relative z-10 w-full max-w-7xl mx-auto flex flex-row items-center justify-between text-[11px] text-white/40 pt-4 border-t border-white/5 shrink-0 min-h-[44px]">
+        <div>Peerly &copy; {new Date().getFullYear()} &bull; Video &amp; Chat Platform</div>
         <div className="flex items-center gap-4">
-          <Link to="/login" className="hover:text-white transition-colors">
+          <Link to="/login" className="hover:text-white transition-colors py-1">
             Sign In
           </Link>
-          <Link to="/register" className="hover:text-white transition-colors">
+          <Link to="/register" className="hover:text-white transition-colors py-1">
             Create Account
           </Link>
         </div>

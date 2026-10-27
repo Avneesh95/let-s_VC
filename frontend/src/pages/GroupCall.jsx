@@ -18,12 +18,13 @@ import {
   Loader2,
   Minimize2,
   Maximize2,
+  Check,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
 import { startRingback, stopRingtone, playMessageTone } from "../utils/ringtone";
-import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile, getVideoFitMode } from "../utils/callMedia";
+import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile, getVideoFitMode, isMobileViewport } from "../utils/callMedia";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
@@ -1796,6 +1797,13 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         </div>
       )}
 
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 bg-black/85 backdrop-blur-xl border border-white/20 text-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-full shadow-2xl animate-fade-in-up flex items-center gap-2 pointer-events-none">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
       {/* Floating Bottom Controls Frosted Glass Capsule */}
       <div
         className={`absolute bottom-0 inset-x-0 z-30 pointer-events-none pb-4 md:pb-7 flex items-center justify-center transition-opacity duration-300 ${
