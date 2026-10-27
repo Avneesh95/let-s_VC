@@ -24,7 +24,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import ICE_SERVERS from "../utils/iceServers";
 import { startRingback, stopRingtone, playMessageTone } from "../utils/ringtone";
-import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile, getVideoFitMode, isMobileViewport } from "../utils/callMedia";
+import { classifyConnectionQuality, getMediaConstraintCandidates, getQualityProfile, getQualityProfileByParticipantCount, getVideoFitMode, isMobileViewport } from "../utils/callMedia";
 
 // Keep in sync with MAX_ROOM_SIZE on the backend — this is just for the UI
 // counter, the backend is what actually enforces the cap.
@@ -780,18 +780,16 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
         // produces a blocky 1080p frame, not an HD one; matching
         // resolution to bitrate is what actually looks sharp.
         if (track.kind === "video") {
+          const countProfile = getQualityProfileByParticipantCount(roomSizeRef.current);
           const others = Math.max(1, roomSizeRef.current - 1);
-          const { capBps, scaleDownBy } =
-            others <= 1
-              ? { capBps: 3500000, scaleDownBy: 1 }
-              : others <= 3
-              ? { capBps: 1200000, scaleDownBy: 1.5 }
-              : { capBps: 700000, scaleDownBy: 2 };
+          const { maxBitrate: capBps, scaleResolutionDownBy: scaleDownBy } = countProfile;
+          // Config profile applied
           try {
             const params = sender.getParameters();
             if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
             params.encodings[0].maxBitrate = capBps;
             params.encodings[0].scaleResolutionDownBy = scaleDownBy;
+            params.encodings[0].maxFramerate = countProfile.maxFramerate;
             sender.setParameters(params).catch(() => {});
           } catch (err) {
             // Not fatal — falls back to the browser's own (uncapped) estimate.
@@ -816,7 +814,12 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
     let cancelled = false;
 
     const applyQualityProfile = (quality) => {
-      const profile = getQualityProfile(quality);
+      const netProfile = getQualityProfile(quality);
+      const countProfile = getQualityProfileByParticipantCount(roomSizeRef.current);
+      const maxBitrate = Math.min(netProfile.maxBitrate, countProfile.maxBitrate);
+      const scaleResolutionDownBy = Math.max(netProfile.scaleResolutionDownBy, countProfile.scaleResolutionDownBy);
+      const maxFramerate = Math.min(netProfile.maxFramerate, countProfile.maxFramerate);
+      const profile = { maxBitrate, scaleResolutionDownBy, maxFramerate };
       peerConnections.current.forEach((pc) => {
         const sender = pc.getSenders().find((item) => item.track?.kind === "video");
         if (!sender) return;
