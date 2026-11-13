@@ -118,6 +118,7 @@ export default function VideoTile({
     <div
       aria-label={label || "Video participant"}
       role="region"
+      data-testid="video-tile"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}

@@ -23,27 +23,31 @@ const VIEWPORTS = [
 
 test.describe('VideoGrid Visual Regression & Layout Consistency', () => {
   for (const vp of VIEWPORTS) {
-    for (let count = 2; count <= 6; count++) {
-      test(`Grid layout snapshot: N=${count} @ ${vp.name}`, async ({ page }) => {
-        await page.setViewportSize({ width: vp.width, height: vp.height });
+    test(`Grid layout snapshot @ ${vp.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
 
-        // Navigate to test harness or mock room
-        await page.goto(`http://localhost:5173/room/VISUAL_TEST`);
+      // Navigate to room
+      await page.goto(`http://localhost:5173/room/VISUALTEST`);
 
-        // Wait for grid to render
-        await page.waitForSelector('[aria-label*="participant" i]', { timeout: 10000 });
+      const nameInput = page.locator('input[placeholder*="name" i]');
+      if (await nameInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await nameInput.fill(`Viewer_${vp.name}`);
+        await page.click('button[type="submit"]');
+      }
 
-        // Capture screenshot into tests/screenshots
-        const screenshotPath = `tests/screenshots/${vp.name}_N${count}.png`;
-        await page.screenshot({ path: screenshotPath, fullPage: false });
+      // Wait for grid to render
+      await page.waitForSelector('[data-testid="video-tile"]', { timeout: 10000 });
 
-        // Verify no horizontal or vertical page scrollbar / overflow
-        const hasScroll = await page.evaluate(() => {
-          return document.documentElement.scrollHeight > window.innerHeight + 1 ||
-                 document.documentElement.scrollWidth > window.innerWidth + 1;
-        });
-        expect(hasScroll).toBe(false);
+      // Capture screenshot into tests/screenshots
+      const screenshotPath = `tests/screenshots/${vp.name}.png`;
+      await page.screenshot({ path: screenshotPath, fullPage: false });
+
+      // Verify no horizontal or vertical page scrollbar / overflow
+      const hasScroll = await page.evaluate(() => {
+        return document.documentElement.scrollHeight > window.innerHeight + 1 ||
+               document.documentElement.scrollWidth > window.innerWidth + 1;
       });
-    }
+      expect(hasScroll).toBe(false);
+    });
   }
 });

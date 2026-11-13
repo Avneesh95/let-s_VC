@@ -427,6 +427,11 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
   // common: it's closed by default) previously vanished into it with
   // nothing on the toggle button to say it arrived.
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [toastMessage, setToastMessage] = useState(null);
+  const showToast = useCallback((msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  }, []);
   const chatOpenRef = useRef(chatOpen);
   const chatBottomRef = useRef(null);
   useEffect(() => {
@@ -1504,20 +1509,62 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
 
   const copyInviteLink = async () => {
     try {
+      if (typeof navigator !== "undefined" && navigator.share && /mobile|android|iphone/i.test(navigator.userAgent)) {
+        await navigator.share({
+          title: "Join my Peerly call",
+          text: `Join video call room ${roomCode}`,
+          url: window.location.href,
+        });
+        return;
+      }
       await navigator.clipboard.writeText(window.location.href);
-      alert("Room link copied!");
+      showToast("Room link copied to clipboard!");
     } catch (err) {
-      // Clipboard API can silently fail (permissions, insecure context,
-      // unsupported browser) — the old code didn't check this at all and
-      // always claimed success. Fall back to a manual-copy prompt instead.
-      console.error("Clipboard copy failed:", err);
-      window.prompt("Copy this link:", window.location.href);
+      if (err.name !== "AbortError") {
+        console.error("Clipboard copy failed:", err);
+        window.prompt("Copy this link:", window.location.href);
+      }
     }
   };
 
   const otherParticipants = Object.entries(participants); // [userId, {username, stream}][]
   const participantCount = otherParticipants.length + 1; // +1 for self
   const callLayout = getCallLayoutConfig(participantCount);
+
+  // Self tile, used consistently across the 4/5/6-person grid branches
+  // Memoized participant list for VideoGrid component
+  const gridParticipants = useMemo(() => {
+    const list = [];
+    list.push({
+      id: user?.id || "local",
+      username: user?.username || "You",
+      stream: localStream,
+      isLocal: true,
+      isCameraOn,
+      isMicOn,
+      isScreenShare: isScreenSharing,
+      connState: "connected",
+      avatarUrl: user?.avatarUrl,
+      avatarColor: user?.avatarColor,
+    });
+
+    otherParticipants.forEach(([userId, p]) => {
+      list.push({
+        id: userId,
+        username: p.username,
+        stream: p.stream,
+        isLocal: false,
+        isCameraOn: !p.remoteCameraOff,
+        isMicOn: true,
+        isScreenShare: p.stream?.getVideoTracks?.()[0]?.label?.toLowerCase().includes("screen"),
+        connState: p.connState,
+        avatarUrl: p.avatarUrl,
+        onRetry: () => manualRetry(userId),
+      });
+    });
+    return list;
+  }, [user, localStream, isCameraOn, isMicOn, isScreenSharing, otherParticipants]);
+
 
   if (!user) {
     return (
@@ -1593,39 +1640,6 @@ export default function GroupCall({ roomCode: rawRoomCode }) {
     );
   }
 
-  // Self tile, used consistently across the 4/5/6-person grid branches
-  // Memoized participant list for VideoGrid component
-  const gridParticipants = useMemo(() => {
-    const list = [];
-    list.push({
-      id: user?.id || "local",
-      username: user?.username || "You",
-      stream: localStream,
-      isLocal: true,
-      isCameraOn,
-      isMicOn,
-      isScreenShare: isScreenSharing,
-      connState: "connected",
-      avatarUrl: user?.avatarUrl,
-      avatarColor: user?.avatarColor,
-    });
-
-    otherParticipants.forEach(([userId, p]) => {
-      list.push({
-        id: userId,
-        username: p.username,
-        stream: p.stream,
-        isLocal: false,
-        isCameraOn: !p.remoteCameraOff,
-        isMicOn: true,
-        isScreenShare: p.stream?.getVideoTracks?.()[0]?.label?.toLowerCase().includes("screen"),
-        connState: p.connState,
-        avatarUrl: p.avatarUrl,
-        onRetry: () => manualRetry(userId),
-      });
-    });
-    return list;
-  }, [user, localStream, isCameraOn, isMicOn, isScreenSharing, otherParticipants]);
 
   return (
     <div

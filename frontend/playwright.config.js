@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Playwright configuration for Peerly WebRTC testing
@@ -34,7 +38,9 @@ export default defineConfig({
 
   webServer: {
     command: 'npm run dev',
+    cwd: __dirname,
     port: 5173,
     reuseExistingServer: !process.env.CI,
+    timeout: 60000,
   },
 });
